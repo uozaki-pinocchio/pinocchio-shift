@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>学童シフト自動作成ツール</title>
+<style>
+  :root {
+    --blue-bg:#dbeafe;--blue-mid:#93c5fd;--blue-dark:#1d4ed8;--blue-cell:#bfdbfe;
+    --yellow-bg:#fef9c3;--yellow-mid:#fde047;--yellow-dark:#a16207;--yellow-cell:#fef08a;
+    --purple-bg:#ede9fe;--purple-mid:#a78bfa;--purple-dark:#6d28d9;--purple-cell:#ddd6fe;
+    --gray-bg:#f3f4f6;--gray-cell:#e5e7eb;--border:#d1d5db;--text:#1f2937;
+    --shadow:0 2px 8px rgba(0,0,0,.1);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f8fafc;color:var(--text);font-size:14px}
+  h2{font-size:1.1rem;font-weight:bold;margin-bottom:12px}
+  h3{font-size:1rem;font-weight:bold;margin-bottom:8px}
+  #app-header{background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:#fff;padding:12px 16px;
+    display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow)}
+  #app-header h1{flex:1;font-size:1.25rem;font-weight:bold}
+  .header-period{font-size:.82rem;opacity:.9}
+  #nav-tabs{display:flex;background:#fff;border-bottom:2px solid var(--border);
+    overflow-x:auto;position:sticky;top:52px;z-index:99}
+  .tab-btn{padding:10px 13px;border:none;background:none;cursor:pointer;font-size:.8rem;
+    color:#6b7280;white-space:nowrap;border-bottom:3px solid transparent;transition:all .2s}
+  .tab-btn.active{color:var(--blue-dark);border-bottom-color:var(--blue-dark);font-weight:bold}
+  .tab-btn:hover{background:var(--gray-bg)}
+  .section{display:none;padding:16px;max-width:1400px;margin:0 auto}
+  .section.active{display:block}
+  .card{background:#fff;border-radius:10px;padding:16px;margin-bottom:16px;box-shadow:var(--shadow)}
+  .btn{display:inline-flex;align-items:center;gap:5px;padding:8px 13px;border:none;border-radius:6px;
+    cursor:pointer;font-size:.83rem;font-weight:bold;transition:all .15s}
+  .btn:focus{outline:2px solid var(--blue-dark);outline-offset:2px}
+  .btn-primary{background:var(--blue-dark);color:#fff}.btn-primary:hover{background:#1e40af}
+  .btn-success{background:#059669;color:#fff}.btn-success:hover{background:#047857}
+  .btn-danger{background:#dc2626;color:#fff}.btn-danger:hover{background:#b91c1c}
+  .btn-secondary{background:#6b7280;color:#fff}.btn-secondary:hover{background:#4b5563}
+  .btn-outline{background:#fff;border:1.5px solid var(--border);color:var(--text)}.btn-outline:hover{background:var(--gray-bg)}
+  .btn-patA{background:#dbeafe;border:1.5px solid var(--blue-mid);color:var(--blue-dark);font-weight:bold}.btn-patA:hover{background:#bfdbfe}
+  .btn-patB{background:#fef9c3;border:1.5px solid var(--yellow-mid);color:var(--yellow-dark);font-weight:bold}.btn-patB:hover{background:#fef08a}
+  .btn-sm{padding:4px 8px;font-size:.76rem}
+  .btn-icon{padding:4px 6px;font-size:.9rem}
+  .form-row{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px}
+  .form-group{display:flex;flex-direction:column;gap:4px}
+  .form-group label{font-size:.78rem;font-weight:bold;color:#374151}
+  .form-group input,.form-group select,.form-group textarea{
+    padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:.84rem;transition:border .15s}
+  .form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;border-color:var(--blue-dark)}
+  .form-group input[type=number]{width:76px}
+  .staff-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;
+    margin-bottom:8px;border:1.5px solid transparent}
+  .staff-item.regular{background:var(--blue-bg);border-color:var(--blue-mid)}
+  .staff-item.parttime{background:var(--yellow-bg);border-color:var(--yellow-mid)}
+  .staff-name{font-weight:bold;font-size:.93rem;flex:1}
+  .staff-info{font-size:.74rem;color:#4b5563}
+  .staff-badge{font-size:.7rem;padding:2px 7px;border-radius:12px;font-weight:bold}
+  .badge-regular{background:var(--blue-dark);color:#fff}
+  .badge-parttime{background:var(--yellow-dark);color:#fff}
+  .time-checks{display:flex;flex-wrap:wrap;gap:6px}
+  .time-check{display:flex;align-items:center;gap:3px;font-size:.8rem}
+  .time-check input{width:auto}
+  .period-selector{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  .op-calendar{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+  .op-day{width:56px;height:72px;border-radius:7px;border:1.5px solid var(--border);background:#fff;
+    cursor:pointer;font-size:.7rem;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;transition:all .15s;gap:1px;padding:3px}
+  .op-day:hover{border-color:var(--blue-dark)}
+  .op-day.op-open{background:#f0fdf4;border-color:#86efac}
+  .op-day.op-closed{background:var(--gray-cell);color:#9ca3af}
+  .op-day.op-event{background:var(--purple-cell);border-color:var(--purple-mid)}
+  .op-day .op-wday{font-size:.62rem}.op-day .op-num{font-weight:bold;font-size:.9rem}
+  .op-day .op-pat{font-size:.6rem;font-weight:bold;padding:1px 4px;border-radius:3px}
+  .pat-a{background:#dbeafe;color:#1d4ed8}.pat-b{background:#fef9c3;color:#a16207}
+  .op-day .op-label{font-size:.55rem;text-align:center;max-width:54px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .day-wday-sat{color:#2563eb}.day-wday-sun{color:#dc2626}
+  .op-legend{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;font-size:.78rem}
+  .op-legend-item{display:flex;align-items:center;gap:4px}
+  .op-legend-dot{width:12px;height:12px;border-radius:3px}
+  .rules-table{width:100%;border-collapse:collapse;font-size:.82rem;margin-top:8px}
+  .rules-table th,.rules-table td{border:1px solid var(--border);padding:7px 10px;text-align:center}
+  .rules-table th{background:#f1f5f9;font-weight:bold}
+  .rules-table td input{width:60px;padding:4px 6px;border:1.5px solid var(--border);border-radius:4px;font-size:.82rem;text-align:center}
+  .wish-staff-block{border:1.5px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden}
+  .staff-wish-header{display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;user-select:none}
+  .staff-wish-header.regular{background:var(--blue-bg)}.staff-wish-header.parttime{background:var(--yellow-bg)}
+  .wish-calendar-inner{padding:8px 12px}
+  .wish-bulk-btns{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .wish-calendar{display:flex;flex-wrap:wrap;gap:4px;padding:4px 0 10px}
+  .wish-day{width:42px;height:50px;border-radius:6px;border:1.5px solid var(--border);background:#fff;
+    cursor:pointer;font-size:.7rem;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;transition:all .15s;gap:1px}
+  .wish-day:hover:not(.not-operating){border-color:var(--blue-dark)}
+  .wish-day.wished-regular{background:var(--blue-cell);border-color:var(--blue-mid)}
+  .wish-day.wished-parttime{background:var(--yellow-cell);border-color:var(--yellow-mid)}
+  .wish-day.off-day{background:#fee2e2;border-color:#fca5a5}
+  .wish-day.not-operating{background:var(--gray-bg);color:#9ca3af;cursor:default;opacity:.6}
+  .wish-day.is-event{background:var(--purple-cell);border-color:var(--purple-mid)}
+  .wish-day .day-num{font-weight:bold;font-size:.82rem}
+  .wish-day .day-time{font-size:.58rem;color:#374151;max-width:40px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .wish-day .day-wday{font-size:.6rem}
+  .toggle-arrow{transition:transform .2s;display:inline-block}
+  .collapsed .toggle-arrow{transform:rotate(-90deg)}
+  .shift-table-wrap{overflow-x:auto}
+  table.shift-tbl{border-collapse:collapse;width:100%;font-size:.76rem}
+  .shift-tbl th,.shift-tbl td{border:1px solid var(--border);padding:4px 5px;text-align:center;white-space:nowrap}
+  .shift-tbl thead th{background:#f1f5f9;font-weight:bold}
+  .th-staff{min-width:80px;position:sticky;left:0;background:#f1f5f9;z-index:10}
+  .td-staff{position:sticky;left:0;z-index:9;font-weight:bold;font-size:.78rem}
+  .td-staff.regular{background:var(--blue-bg)}.td-staff.parttime{background:var(--yellow-bg)}
+  .shift-cell{cursor:pointer;min-width:52px;transition:all .15s;position:relative}
+  .shift-cell.working-regular{background:var(--blue-cell);color:#1e3a8a;font-weight:bold}
+  .shift-cell.working-parttime{background:var(--yellow-cell);color:#713f12;font-weight:bold}
+  .shift-cell.working-event{background:var(--purple-cell);color:#4c1d95;font-weight:bold}
+  .shift-cell.off{background:var(--gray-cell);color:#9ca3af}
+  .shift-cell.selected{outline:3px solid #f97316;outline-offset:-2px;background:#fed7aa!important}
+  .summary-row td{background:#f8fafc;font-size:.73rem}
+  .count-ok{color:#059669;font-weight:bold}.count-ng{color:#dc2626;font-weight:bold}
+  /* 操作ガイド */
+  .shift-op-guide{font-size:.75rem;color:#6b7280;background:#f8fafc;border:1px solid var(--border);
+    border-radius:6px;padding:6px 12px;margin-bottom:10px;display:flex;gap:16px;flex-wrap:wrap}
+  .shift-op-guide span{display:flex;align-items:center;gap:4px}
+  /* タイムライン */
+  .tl-header{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+  .tl-date-label{font-size:1rem;font-weight:bold;color:var(--blue-dark)}
+  .tl-status-badge{font-size:.78rem;padding:3px 10px;border-radius:12px;font-weight:bold}
+  .tl-ok{background:#f0fdf4;color:#059669;border:1px solid #86efac}
+  .tl-ng{background:#fef2f2;color:#dc2626;border:1px solid #fca5a5}
+  .tl-info{font-size:.82rem;color:#6b7280;margin-bottom:12px}
+  .tl-wrap{overflow-x:auto}
+  .tl-table{border-collapse:collapse;min-width:600px;width:100%;font-size:.78rem}
+  .tl-table th,.tl-table td{border:1px solid var(--border);padding:0;white-space:nowrap}
+  .tl-table thead th{background:#f1f5f9;font-weight:bold;font-size:.72rem;text-align:center;padding:4px 2px}
+  .tl-name-col{min-width:90px;position:sticky;left:0;z-index:5;background:#f1f5f9;padding:4px 8px!important;font-weight:bold;text-align:left!important}
+  .tl-name-cell{min-width:90px;position:sticky;left:0;z-index:4;padding:3px 8px!important;text-align:left!important;font-size:.78rem}
+  .tl-name-cell.reg{background:var(--blue-bg)}.tl-name-cell.pt{background:var(--yellow-bg)}
+  .tl-name-cell.sum{background:#f1f5f9;font-weight:bold}
+  .tl-slot{width:36px;height:32px;padding:0!important}
+  .tl-count-ok{background:#bbf7d0;color:#166534;font-weight:bold;font-size:.72rem;text-align:center;vertical-align:middle}
+  .tl-count-ng{background:#fecaca;color:#991b1b;font-weight:bold;font-size:.72rem;text-align:center;vertical-align:middle}
+  .tl-count-zero{background:var(--gray-cell);color:#9ca3af;font-size:.72rem;text-align:center;vertical-align:middle}
+  .tl-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:.78rem}
+  .tl-legend-item{display:flex;align-items:center;gap:5px}
+  .tl-legend-dot{width:14px;height:14px;border-radius:3px;border:1px solid var(--border)}
+  /* モーダル */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;
+    align-items:center;justify-content:center;z-index:1000;padding:16px}
+  .modal-box{background:#fff;border-radius:12px;padding:20px;min-width:280px;max-width:500px;
+    width:100%;box-shadow:0 8px 32px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto}
+  .modal-box h3{margin-bottom:12px}
+  .modal-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;flex-wrap:wrap}
+  .modal-time-list{display:flex;flex-direction:column;gap:6px;max-height:320px;overflow-y:auto}
+  .modal-time-btn{padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;
+    background:#fff;cursor:pointer;text-align:left;font-size:.88rem;transition:all .15s}
+  .modal-time-btn:hover{background:var(--blue-bg);border-color:var(--blue-mid)}
+  .modal-time-btn.selected-time{background:var(--blue-bg);border-color:var(--blue-dark);font-weight:bold}
+  .modal-time-btn.off-btn{color:#dc2626}.modal-time-btn.off-btn:hover{background:#fee2e2;border-color:#fca5a5}
+  .modal-time-btn.current{background:#f0fdf4;border-color:#86efac}
+  #log-area{position:fixed;bottom:0;left:0;right:0;background:rgba(0,0,0,.85);color:#86efac;
+    font-size:.73rem;padding:4px 12px;z-index:200;font-family:monospace;white-space:nowrap;overflow:hidden}
+  @media print{
+    #app-header,#nav-tabs,#log-area,.no-print{display:none!important}
+    .section{display:block!important;padding:0}#sec-shift{display:block!important}
+    @page{size:A4 landscape;margin:10mm}
+  }
+  @media(max-width:600px){
+    .form-row{flex-direction:column}.btn{padding:7px 10px;font-size:.78rem}
+    .wish-day{width:36px;height:44px}.op-day{width:48px;height:62px}
+  }
+  .flex-gap{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .mt-8{margin-top:8px}.mt-12{margin-top:12px}.mb-8{margin-bottom:8px}
+  .text-sm{font-size:.8rem;color:#6b7280}
+  .divider{border:none;border-top:1px solid var(--border);margin:12px 0}
+  .hidden{display:none!important}
+  .info-box{background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px;font-size:.82rem;margin-bottom:8px}
+  .info-box.error{background:#fef2f2;border-color:#fecaca}
+  .info-box.success{background:#f0fdf4;border-color:#86efac}
+  .shift-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .event-tag{display:inline-block;background:var(--purple-bg);border:1px solid var(--purple-mid);
+    color:var(--purple-dark);border-radius:6px;font-size:.7rem;padding:1px 6px;font-weight:bold}
+  .section-subtitle{font-size:.82rem;color:#4b5563;margin-bottom:10px}
+  .bulk-pat-btns{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;
+    background:#f8fafc;border-radius:8px;border:1px solid var(--border);align-items:center}
+</style>
+</head>
+<body>
+<header id="app-header">
+  <h1>🏫 学童シフト自動作成</h1>
+  <span class="header-period" id="header-period-label"></span>
+</header>
+<nav id="nav-tabs" role="tablist">
+  <button class="tab-btn active" onclick="switchTab('staff')">👥 スタッフ</button>
+  <button class="tab-btn" onclick="switchTab('operating')">📆 稼働日設定</button>
+  <button class="tab-btn" onclick="switchTab('wish')">📅 出勤希望</button>
+  <button class="tab-btn" onclick="switchTab('shift')">📋 シフト表</button>
+  <button class="tab-btn" onclick="switchTab('timeline')">📊 タイムライン</button>
+  <button class="tab-btn" onclick="switchTab('settings')">⚙️ 設定</button>
+</nav>
+
+<section id="sec-staff" class="section active">
+  <div class="card">
+    <h2>👤 スタッフ追加</h2>
+    <div class="form-row">
+      <div class="form-group"><label>氏名 <span style="color:red">*</span></label>
+        <input type="text" id="s-name" placeholder="例：山田 花子" style="width:160px"></div>
+      <div class="form-group"><label>区分</label>
+        <select id="s-type" onchange="onTypeChange()">
+          <option value="regular">正規スタッフ</option>
+          <option value="parttime">アルバイト</option>
+        </select></div>
+      <div class="form-group"><label>月最小</label><input type="number" id="s-min" min="0" max="31" value="15"></div>
+      <div class="form-group"><label>月最大</label><input type="number" id="s-max" min="0" max="31" value="20"></div>
+      <div class="form-group"><label>週最大</label><input type="number" id="s-wmax" min="1" max="7" value="5"></div>
+    </div>
+    <div class="form-group mb-8"><label>開始可能時刻（複数選択可）</label>
+      <div class="time-checks" id="start-time-checks"></div></div>
+    <div class="form-group mb-8"><label>メモ</label>
+      <textarea id="s-memo" rows="2" style="width:100%;max-width:400px;resize:vertical"></textarea></div>
+    <div class="flex-gap">
+      <button class="btn btn-primary" onclick="addStaff()">➕ 追加</button>
+      <span id="staff-add-msg" class="text-sm"></span>
+    </div>
+  </div>
+  <div class="card"><h2>📋 スタッフ一覧</h2><div id="staff-list"></div></div>
+</section>
+
+<section id="sec-operating" class="section">
+  <div class="card">
+    <h2>📆 稼働日カレンダー</h2>
+    <div class="period-selector">
+      <label style="font-weight:bold">対象期間：</label>
+      <select id="op-year" onchange="renderOperatingSection()"></select>年
+      <select id="op-month" onchange="renderOperatingSection()"></select>月
+    </div>
+    <div class="bulk-pat-btns">
+      <span style="font-size:.82rem;font-weight:bold">平日一括：</span>
+      <button class="btn btn-patA" onclick="bulkSetPattern('A')">📋 パターンA（夏休み等）</button>
+      <button class="btn btn-patB" onclick="bulkSetPattern('B')">📋 パターンB（通常）</button>
+      <span class="text-sm">※土日・イベント・休館日は変更されません</span>
+    </div>
+    <div class="op-legend">
+      <div class="op-legend-item"><div class="op-legend-dot" style="background:#f0fdf4;border:1px solid #86efac"></div>稼働</div>
+      <div class="op-legend-item"><div class="op-legend-dot" style="background:#e5e7eb"></div>休館</div>
+      <div class="op-legend-item"><div class="op-legend-dot" style="background:var(--purple-cell);border:1px solid var(--purple-mid)"></div>イベント</div>
+      <div class="op-legend-item"><span class="op-pat pat-a" style="font-size:.72rem;padding:2px 6px">A</span>パターンA</div>
+      <div class="op-legend-item"><span class="op-pat pat-b" style="font-size:.72rem;padding:2px 6px">B</span>パターンB</div>
+    </div>
+    <p class="text-sm mb-8">平日クリック→個別設定。土・日クリック→イベント設定。</p>
+    <div id="op-calendar-content"></div>
+  </div>
+  <div class="card">
+    <h2>👥 在籍人数ルール設定</h2>
+    <p class="section-subtitle">期間全体のデフォルトルールを設定します。</p>
+    <div class="period-selector">
+      <label style="font-weight:bold">対象期間：</label>
+      <select id="rule-year" onchange="renderRuleSection()"></select>年
+      <select id="rule-month" onchange="renderRuleSection()"></select>月
+    </div>
+    <div id="rule-content"></div>
+  </div>
+</section>
+
+<section id="sec-wish" class="section">
+  <div class="card">
+    <div class="period-selector">
+      <label style="font-weight:bold">対象期間：</label>
+      <select id="wish-year" onchange="renderWishSection()"></select>年
+      <select id="wish-month" onchange="renderWishSection()"></select>月
+      <span class="text-sm" id="wish-period-label"></span>
+    </div>
+    <div id="wish-content"></div>
+  </div>
+</section>
+
+<section id="sec-shift" class="section">
+  <div class="card no-print">
+    <div class="period-selector">
+      <label style="font-weight:bold">対象期間：</label>
+      <select id="shift-year" onchange="renderShiftSection()"></select>年
+      <select id="shift-month" onchange="renderShiftSection()"></select>月
+      <span class="text-sm" id="shift-period-label"></span>
+    </div>
+    <div class="shift-actions">
+      <button class="btn btn-success" onclick="generateShift()">⚡ シフト自動生成</button>
+      <button class="btn btn-outline" onclick="exportCSV()">📥 CSV出力</button>
+      <button class="btn btn-outline" onclick="printShift()">🖨️ 印刷/PDF</button>
+    </div>
+    <!-- 操作ガイド -->
+    <div class="shift-op-guide no-print">
+      <span>🖱️ <b>1回クリック</b>：セル選択（交換モード）</span>
+      <span>🖱️ <b>選択中に再クリック</b>：時刻・出欠を変更</span>
+      <span>🔄 <b>別のセルをクリック</b>：2セルを交換</span>
+    </div>
+    <div id="shift-info-area"></div>
+  </div>
+  <div class="card"><div id="shift-table-content"></div></div>
+</section>
+
+<section id="sec-timeline" class="section">
+  <div class="card">
+    <h2>📊 タイムライン確認</h2>
+    <div id="timeline-content"></div>
+  </div>
+</section>
+
+<section id="sec-settings" class="section">
+  <div class="card">
+    <h2>⚙️ データ管理</h2>
+    <div class="flex-gap">
+      <button class="btn btn-outline" onclick="exportData()">💾 エクスポート</button>
+      <button class="btn btn-outline" onclick="document.getElementById('import-file').click()">📂 インポート</button>
+      <input type="file" id="import-file" accept=".json" class="hidden" onchange="importData(event)">
+    </div>
+    <hr class="divider">
+    <button class="btn btn-danger" onclick="clearAllData()">🗑️ 全データ削除</button>
+    <p class="text-sm mt-8">※ 元に戻せません</p>
+  </div>
+  <div class="card">
+    <h2>ℹ️ 稼働ルール（デフォルト）</h2>
+    <table class="rules-table">
+      <tr><th>時間帯</th><th>パターンA</th><th>パターンB</th><th>最低人数</th><th>うち正規</th></tr>
+      <tr><td>開館〜コアタイム前</td><td>8:00〜9:59</td><td>13:00〜14:44</td><td>2人</td><td>2人（正規のみ）</td></tr>
+      <tr><td>コアタイム〜17:29</td><td>10:00〜17:29</td><td>14:45〜17:29</td><td>4人（土曜3人）</td><td>2人</td></tr>
+      <tr><td>17:30〜閉館</td><td colspan="2">共通</td><td>2人</td><td>2人（正規のみ）</td></tr>
+    </table>
+  </div>
+</section>
+
+<div class="modal-overlay hidden" id="modal-overlay" onclick="closeModalOnOverlay(event)">
+  <div class="modal-box" id="modal-box" role="dialog" aria-modal="true">
+    <h3 id="modal-title"></h3>
+    <div id="modal-body"></div>
+    <div class="modal-footer" id="modal-footer"></div>
+  </div>
+</div>
+<div id="log-area" aria-live="polite">起動中...</div>
+
+<script>
+const REGULAR_TIMES  = ["8:00","9:00","9:30","10:00","12:00","13:00"];
+const PARTTIME_TIMES = ["9:30","10:00","12:00","14:15","14:45"];
+const DAYS_JP=["日","月","火","水","木","金","土"];
+const END_REGULAR="19:00",END_PARTTIME="17:30";
+const DEFAULT_RULES={
+  A:{open:"8:00",coreStart:"10:00",close:"19:00",
+     preCore:{minTotal:2,minReg:2},core:{minTotal:4,minReg:2},postPT:{minTotal:2,minReg:2}},
+  B:{open:"13:00",coreStart:"14:45",close:"19:00",
+     preCore:{minTotal:2,minReg:2},core:{minTotal:4,minReg:2},postPT:{minTotal:2,minReg:2}}
+};
+let state={staffList:[],wishes:{},shifts:{},operating:{},periodRules:{}};
+let selectedShiftCell=null,currentModalBtns=null,tlCurrentDate="";
+
+const p2=n=>String(n).padStart(2,"0");
+const formatDate=d=>`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
+const parseDate=s=>new Date(s+"T00:00:00");
+const isSun=d=>parseDate(d).getDay()===0;
+const isSat=d=>parseDate(d).getDay()===6;
+const wdayOf=d=>parseDate(d).getDay();
+const toMin=t=>{const[h,m]=t.split(":").map(Number);return h*60+m;};
+const getYMKey=(y,m)=>`${y}-${p2(m)}`;
+const escHtml=s=>s?String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"):"";
+const getPeriodLabel=(y,m)=>{const py=m===1?y-1:y,pm=m===1?12:m-1;return`（${py}年${pm}月21日〜${y}年${m}月20日）`;};
+function getPeriodDates(y,m){
+  const s=new Date(y,m-2,21),e=new Date(y,m-1,20),out=[];
+  for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1))out.push(formatDate(new Date(d)));
+  return out;
+}
+function getWeekKey(dateStr){
+  const d=parseDate(dateStr),day=d.getDay(),diff=d.getDate()-day+(day===0?-6:1);
+  return formatDate(new Date(d.getFullYear(),d.getMonth(),diff));
+}
+function ymKeyFromDate(dateStr){
+  const d=parseDate(dateStr);
+  if(d.getDate()>=21){const nm=new Date(d.getFullYear(),d.getMonth()+1,1);return getYMKey(nm.getFullYear(),nm.getMonth()+1);}
+  return getYMKey(d.getFullYear(),d.getMonth()+1);
+}
+function getOpStatus(ymKey,dateStr){return state.operating[ymKey]?.[dateStr]||{status:isSun(dateStr)?"closed":"open"};}
+function isOperating(ymKey,dateStr){const s=getOpStatus(ymKey,dateStr).status;return s==="open"||s==="event";}
+function getDayPattern(ymKey,dateStr){
+  const dr=state.operating[ymKey]?.[dateStr];if(dr&&dr.pattern)return dr.pattern;
+  return(isSat(dateStr)||isSun(dateStr))?"A":"B";
+}
+function getDayRules(ymKey,dateStr){
+  const pattern=getDayPattern(ymKey,dateStr);
+  const dr=state.operating[ymKey]?.[dateStr];if(dr&&dr.customRules)return dr.customRules;
+  const base=JSON.parse(JSON.stringify(state.periodRules[ymKey]?.[pattern]||DEFAULT_RULES[pattern]));
+  if(isSat(dateStr))base.core.minTotal=Math.min(base.core.minTotal,3);
+  return base;
+}
+
+function init(){
+  loadState();buildSelectors();renderStartTimeChecks();renderStaffList();
+  renderOperatingSection();renderRuleSection();renderWishSection();renderShiftSection();
+  updateHeaderPeriod();renderTimeline();log("アプリを起動しました");
+}
+function loadState(){try{const s=localStorage.getItem("gakudo_shift_v4");if(s)state=JSON.parse(s);}catch(e){}}
+function saveState(){try{localStorage.setItem("gakudo_shift_v4",JSON.stringify(state));}catch(e){}}
+function log(msg){document.getElementById("log-area").textContent=`[${new Date().toLocaleTimeString("ja-JP")}] ${msg}`;}
+function buildSelectors(){
+  const now=new Date(),years=[now.getFullYear()-1,now.getFullYear(),now.getFullYear()+1];
+  ["op-year","wish-year","shift-year","rule-year"].forEach(id=>{
+    document.getElementById(id).innerHTML=years.map(y=>`<option value="${y}" ${y===now.getFullYear()?"selected":""}>${y}</option>`).join("");
+  });
+  const months=Array.from({length:12},(_,i)=>i+1);
+  ["op-month","wish-month","shift-month","rule-month"].forEach(id=>{
+    document.getElementById(id).innerHTML=months.map(m=>`<option value="${m}" ${m===(now.getMonth()+1)?"selected":""}>${m}</option>`).join("");
+  });
+}
+function updateHeaderPeriod(){
+  const y=+document.getElementById("shift-year")?.value||new Date().getFullYear();
+  const m=+document.getElementById("shift-month")?.value||new Date().getMonth()+1;
+  const lbl=getPeriodLabel(y,m);
+  document.getElementById("header-period-label").textContent=lbl;
+  const wp=document.getElementById("wish-period-label"),sp=document.getElementById("shift-period-label");
+  if(wp)wp.textContent=lbl;if(sp)sp.textContent=lbl;
+}
+
+function bulkSetPattern(pattern){
+  const y=+document.getElementById("op-year").value,m=+document.getElementById("op-month").value;
+  const ymKey=getYMKey(y,m);if(!state.operating[ymKey])state.operating[ymKey]={};
+  let count=0;
+  getPeriodDates(y,m).forEach(dateStr=>{
+    const wday=wdayOf(dateStr);if(wday===0||wday===6)return;
+    const op=getOpStatus(ymKey,dateStr);if(op.status==="event"||op.status==="closed")return;
+    state.operating[ymKey][dateStr]={...(state.operating[ymKey][dateStr]||{}),status:"open",pattern};count++;
+  });
+  saveState();renderOperatingSection();log(`平日${count}日をパターン${pattern}に設定`);
+}
+
+function renderOperatingSection(){
+  const y=+document.getElementById("op-year").value,m=+document.getElementById("op-month").value;
+  const ymKey=getYMKey(y,m);if(!state.operating[ymKey])state.operating[ymKey]={};
+  let html='<div class="op-calendar">';
+  getPeriodDates(y,m).forEach(dateStr=>{
+    const d=parseDate(dateStr),wday=d.getDay(),op=getOpStatus(ymKey,dateStr),pat=getDayPattern(ymKey,dateStr);
+    const cls="op-day "+(op.status==="event"?"op-event":op.status==="closed"?"op-closed":"op-open");
+    const wdayCls=wday===0?"day-wday-sun":wday===6?"day-wday-sat":"";
+    const label=op.status==="event"?`<span class="op-label" style="color:var(--purple-dark)">${escHtml(op.eventName||"イベント")}</span>`:
+      op.status==="closed"?`<span class="op-label" style="color:#9ca3af">休館</span>`:
+      `<span class="op-pat ${pat==="A"?"pat-a":"pat-b"}">${pat}</span>`;
+    html+=`<div class="${cls}" onclick="onOpDayClick('${dateStr}','${ymKey}')" title="${dateStr}（${DAYS_JP[wday]}）">
+      <span class="op-wday ${wdayCls}">${DAYS_JP[wday]}</span>
+      <span class="op-num">${d.getDate()}</span>${label}</div>`;
+  });
+  html+="</div>";
+  document.getElementById("op-calendar-content").innerHTML=html;
+}
+function onOpDayClick(dateStr,ymKey){
+  const wday=wdayOf(dateStr),op=getOpStatus(ymKey,dateStr);
+  (wday===0||wday===6||op.status==="event")?showEventModal(dateStr,ymKey,op):showWeekdayModal(dateStr,ymKey,op);
+}
+function showWeekdayModal(dateStr,ymKey,op){
+  const d=parseDate(dateStr),wdayStr=DAYS_JP[d.getDay()],curPattern=getDayPattern(ymKey,dateStr),curRules=getDayRules(ymKey,dateStr);
+  showModal(`${dateStr}（${wdayStr}）の設定`,`
+    <p class="text-sm mb-8">${dateStr}（${wdayStr}）</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="form-group"><label>状態</label>
+        <select id="wd-status" style="width:160px">
+          <option value="open" ${op.status!=="closed"?"selected":""}>稼働</option>
+          <option value="closed" ${op.status==="closed"?"selected":""}>休館</option>
+        </select></div>
+      <div class="form-group"><label>営業パターン</label>
+        <select id="wd-pattern" style="width:240px">
+          <option value="A" ${curPattern==="A"?"selected":""}>パターンA（開館8:00/コア10:00〜）</option>
+          <option value="B" ${curPattern==="B"?"selected":""}>パターンB（開館13:00/コア14:45〜）</option>
+        </select></div>
+      <details><summary style="cursor:pointer;font-size:.82rem;font-weight:bold;color:var(--blue-dark)">🔧 人数ルールをこの日だけ変更</summary>
+        <div style="margin-top:8px">${renderRuleInputs("wd",curRules)}</div></details>
+    </div>`,
+    [{label:"保存",cls:"btn-primary",action:()=>{
+      const status=document.getElementById("wd-status").value,pattern=document.getElementById("wd-pattern").value;
+      if(!state.operating[ymKey])state.operating[ymKey]={};
+      if(status==="closed"){state.operating[ymKey][dateStr]={status:"closed"};}
+      else{const entry={status:"open",pattern};const cr=collectRuleInputs("wd");if(cr)entry.customRules=cr;state.operating[ymKey][dateStr]=entry;}
+      saveState();renderOperatingSection();closeModal();
+    }},{label:"キャンセル",cls:"btn-secondary",action:closeModal}]);
+}
+function showEventModal(dateStr,ymKey,existing){
+  const d=parseDate(dateStr),wdayStr=DAYS_JP[d.getDay()];
+  const isEvt=existing.status==="event",isClosed=existing.status==="closed";
+  showModal(`${dateStr}（${wdayStr}）の設定`,`
+    <p class="text-sm mb-8">${dateStr}（${wdayStr}）</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="form-group"><label>状態</label>
+        <select id="ev-status" onchange="onEvStatusChange()" style="width:180px">
+          <option value="open" ${!isEvt&&!isClosed?"selected":""}>通常稼働</option>
+          <option value="event" ${isEvt?"selected":""}>🎪 イベント開催</option>
+          <option value="closed" ${isClosed?"selected":""}>休館</option>
+        </select></div>
+      <div id="ev-detail" style="${isEvt?"":"display:none"}">
+        <div class="form-group mb-8"><label>イベント名</label>
+          <input type="text" id="ev-name" value="${escHtml(existing.eventName||"")}" placeholder="例：登山" style="width:200px"></div>
+        <div class="form-row">
+          <div class="form-group"><label>必要正規人数</label><input type="number" id="ev-reg" min="0" max="20" value="${existing.regCount||3}" style="width:70px"></div>
+          <div class="form-group"><label>必要バイト人数</label><input type="number" id="ev-pt" min="0" max="20" value="${existing.ptCount||2}" style="width:70px"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>開始時刻</label><input type="time" id="ev-start" value="${existing.startTime||"09:00"}" style="width:120px"></div>
+          <div class="form-group"><label>終了時刻</label><input type="time" id="ev-end" value="${existing.endTime||"17:00"}" style="width:120px"></div>
+        </div>
+      </div>
+    </div>`,
+    [{label:"保存",cls:"btn-primary",action:()=>{
+      const status=document.getElementById("ev-status").value;
+      if(!state.operating[ymKey])state.operating[ymKey]={};
+      if(status==="open"){delete state.operating[ymKey][dateStr];}
+      else if(status==="closed"){state.operating[ymKey][dateStr]={status:"closed"};}
+      else{state.operating[ymKey][dateStr]={status:"event",
+        eventName:document.getElementById("ev-name").value.trim()||"イベント",
+        regCount:+document.getElementById("ev-reg").value||0,ptCount:+document.getElementById("ev-pt").value||0,
+        startTime:document.getElementById("ev-start").value||"09:00",endTime:document.getElementById("ev-end").value||"17:00"};}
+      saveState();renderOperatingSection();closeModal();
+    }},{label:"キャンセル",cls:"btn-secondary",action:closeModal}]);
+}
+function onEvStatusChange(){document.getElementById("ev-detail").style.display=document.getElementById("ev-status").value==="event"?"":"none";}
+
+function renderRuleSection(){
+  const y=+document.getElementById("rule-year").value,m=+document.getElementById("rule-month").value;
+  const ymKey=getYMKey(y,m);
+  const getRules=pat=>state.periodRules[ymKey]?.[pat]||JSON.parse(JSON.stringify(DEFAULT_RULES[pat]));
+  document.getElementById("rule-content").innerHTML=`
+    <div style="overflow-x:auto"><table class="rules-table">
+      <thead>
+        <tr><th>時間帯</th><th colspan="2">パターンA</th><th colspan="2">パターンB</th></tr>
+        <tr><th></th><th>最低人数</th><th>うち正規</th><th>最低人数</th><th>うち正規</th></tr>
+      </thead>
+      <tbody>
+        ${renderRuleRow("preCore","開館〜コアタイム前",getRules("A"),getRules("B"))}
+        ${renderRuleRow("core","コアタイム〜17:29",getRules("A"),getRules("B"))}
+        ${renderRuleRow("postPT","17:30〜閉館",getRules("A"),getRules("B"))}
+      </tbody>
+    </table></div>
+    <div class="flex-gap mt-12">
+      <button class="btn btn-primary" onclick="saveRules('${ymKey}')">💾 保存</button>
+      <button class="btn btn-outline" onclick="resetRules('${ymKey}')">↩️ デフォルトに戻す</button>
+      <span id="rule-msg" class="text-sm"></span>
+    </div>
+    <div class="mt-8 text-sm" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px">
+      💡 土曜コアタイムは自動で <b>3人</b> が適用されます。
+    </div>`;
+}
+function renderRuleRow(key,label,rA,rB){
+  return`<tr><td style="text-align:left;font-weight:bold">${label}</td>
+    <td><input type="number" id="rule-A-${key}-total" value="${rA[key].minTotal}" min="0" max="10"></td>
+    <td><input type="number" id="rule-A-${key}-reg" value="${rA[key].minReg}" min="0" max="10"></td>
+    <td><input type="number" id="rule-B-${key}-total" value="${rB[key].minTotal}" min="0" max="10"></td>
+    <td><input type="number" id="rule-B-${key}-reg" value="${rB[key].minReg}" min="0" max="10"></td></tr>`;
+}
+function saveRules(ymKey){
+  if(!state.periodRules[ymKey])state.periodRules[ymKey]={};
+  ["A","B"].forEach(pat=>{
+    state.periodRules[ymKey][pat]={...DEFAULT_RULES[pat],
+      preCore:{minTotal:+document.getElementById(`rule-${pat}-preCore-total`).value,minReg:+document.getElementById(`rule-${pat}-preCore-reg`).value},
+      core:{minTotal:+document.getElementById(`rule-${pat}-core-total`).value,minReg:+document.getElementById(`rule-${pat}-core-reg`).value},
+      postPT:{minTotal:+document.getElementById(`rule-${pat}-postPT-total`).value,minReg:+document.getElementById(`rule-${pat}-postPT-reg`).value}};
+  });
+  saveState();showMsg("rule-msg","✅ 保存しました","green");
+}
+function resetRules(ymKey){if(!confirm("デフォルトに戻しますか？"))return;delete state.periodRules[ymKey];saveState();renderRuleSection();}
+function renderRuleInputs(prefix,rules){
+  if(!rules)rules=DEFAULT_RULES["B"];
+  return`<table class="rules-table" style="font-size:.78rem">
+    <tr><th>時間帯</th><th>最低人数</th><th>うち正規</th></tr>
+    <tr><td>開館〜コアタイム前</td>
+      <td><input type="number" id="${prefix}-preCore-total" value="${rules.preCore.minTotal}" min="0" max="10" style="width:55px"></td>
+      <td><input type="number" id="${prefix}-preCore-reg" value="${rules.preCore.minReg}" min="0" max="10" style="width:55px"></td></tr>
+    <tr><td>コアタイム〜17:29</td>
+      <td><input type="number" id="${prefix}-core-total" value="${rules.core.minTotal}" min="0" max="10" style="width:55px"></td>
+      <td><input type="number" id="${prefix}-core-reg" value="${rules.core.minReg}" min="0" max="10" style="width:55px"></td></tr>
+    <tr><td>17:30〜閉館</td>
+      <td><input type="number" id="${prefix}-postPT-total" value="${rules.postPT.minTotal}" min="0" max="10" style="width:55px"></td>
+      <td><input type="number" id="${prefix}-postPT-reg" value="${rules.postPT.minReg}" min="0" max="10" style="width:55px"></td></tr>
+  </table>`;
+}
+function collectRuleInputs(prefix){
+  try{const v=id=>+document.getElementById(id)?.value||0;
+    return{preCore:{minTotal:v(`${prefix}-preCore-total`),minReg:v(`${prefix}-preCore-reg`)},
+           core:{minTotal:v(`${prefix}-core-total`),minReg:v(`${prefix}-core-reg`)},
+           postPT:{minTotal:v(`${prefix}-postPT-total`),minReg:v(`${prefix}-postPT-reg`)}};}
+  catch(e){return null;}
+}
+
+function renderStartTimeChecks(){
+  const type=document.getElementById("s-type").value,times=type==="regular"?REGULAR_TIMES:PARTTIME_TIMES;
+  document.getElementById("start-time-checks").innerHTML=
+    times.map(t=>`<label class="time-check"><input type="checkbox" value="${t}" checked> ${t}</label>`).join("");
+}
+function onTypeChange(){
+  const isReg=document.getElementById("s-type").value==="regular";
+  document.getElementById("s-min").value=isReg?15:8;document.getElementById("s-max").value=isReg?20:12;
+  document.getElementById("s-wmax").value=isReg?5:3;renderStartTimeChecks();
+}
+function addStaff(){
+  const name=document.getElementById("s-name").value.trim();
+  if(!name){showMsg("staff-add-msg","❌ 氏名を入力してください","red");return;}
+  const type=document.getElementById("s-type").value;
+  const times=Array.from(document.querySelectorAll("#start-time-checks input:checked")).map(c=>c.value);
+  if(!times.length){showMsg("staff-add-msg","❌ 開始可能時刻を選択してください","red");return;}
+  state.staffList.push({id:"s_"+Date.now(),name,type,
+    minDays:+document.getElementById("s-min").value,maxDays:+document.getElementById("s-max").value,
+    weekMax:+document.getElementById("s-wmax").value,times,memo:document.getElementById("s-memo").value.trim()});
+  saveState();renderStaffList();
+  document.getElementById("s-name").value="";document.getElementById("s-memo").value="";
+  showMsg("staff-add-msg","✅ 追加しました","green");log("スタッフ追加: "+name);
+}
+function showMsg(id,msg,color){
+  const el=document.getElementById(id);if(!el)return;
+  el.textContent=msg;el.style.color=color==="red"?"#dc2626":"#059669";
+  setTimeout(()=>{if(el)el.textContent="";},3000);
+}
+function renderStaffList(){
+  const el=document.getElementById("staff-list");
+  if(!state.staffList.length){el.innerHTML='<p class="text-sm">スタッフが登録されていません。</p>';return;}
+  el.innerHTML=state.staffList.map((s,idx)=>`
+    <div class="staff-item ${s.type}">
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <button class="btn btn-icon btn-outline" onclick="moveStaff(${idx},-1)" ${idx===0?"disabled":""}>▲</button>
+        <button class="btn btn-icon btn-outline" onclick="moveStaff(${idx},1)" ${idx===state.staffList.length-1?"disabled":""}>▼</button>
+      </div>
+      <span class="staff-badge ${s.type==="regular"?"badge-regular":"badge-parttime"}">${s.type==="regular"?"正規":"バイト"}</span>
+      <div style="flex:1">
+        <div class="staff-name">${escHtml(s.name)}</div>
+        <div class="staff-info">月${s.minDays}〜${s.maxDays}日 / 週最大${s.weekMax}日 ／ ${s.times.join(" ")} 〜 ${s.type==="regular"?END_REGULAR:END_PARTTIME}</div>
+        ${s.memo?`<div class="staff-info" style="color:#6b7280">💬 ${escHtml(s.memo)}</div>`:""}
+      </div>
+      <button class="btn btn-sm btn-outline" onclick="editStaff('${s.id}')">✏️</button>
+      <button class="btn btn-sm btn-danger" onclick="deleteStaff('${s.id}')">🗑️</button>
+    </div>`).join("");
+}
+function moveStaff(idx,dir){
+  const ni=idx+dir;if(ni<0||ni>=state.staffList.length)return;
+  [state.staffList[idx],state.staffList[ni]]=[state.staffList[ni],state.staffList[idx]];
+  saveState();renderStaffList();
+}
+function deleteStaff(id){
+  const s=state.staffList.find(x=>x.id===id);if(!confirm(`「${s.name}」を削除しますか？`))return;
+  state.staffList=state.staffList.filter(x=>x.id!==id);saveState();renderStaffList();
+}
+function editStaff(id){
+  const s=state.staffList.find(x=>x.id===id),times=s.type==="regular"?REGULAR_TIMES:PARTTIME_TIMES;
+  showModal("スタッフ編集："+s.name,`
+    <div class="form-group mb-8"><label>氏名</label><input id="edit-name" type="text" value="${escHtml(s.name)}" style="width:200px"></div>
+    <div class="form-row">
+      <div class="form-group"><label>月最小</label><input id="edit-min" type="number" value="${s.minDays}" style="width:70px"></div>
+      <div class="form-group"><label>月最大</label><input id="edit-max" type="number" value="${s.maxDays}" style="width:70px"></div>
+      <div class="form-group"><label>週最大</label><input id="edit-wmax" type="number" value="${s.weekMax}" style="width:70px"></div>
+    </div>
+    <div class="form-group mb-8"><label>開始可能時刻</label>
+      <div class="time-checks">${times.map(t=>`<label class="time-check"><input type="checkbox" value="${t}" ${s.times.includes(t)?"checked":""}> ${t}</label>`).join("")}</div></div>
+    <div class="form-group"><label>メモ</label><textarea id="edit-memo" rows="2" style="width:100%">${escHtml(s.memo||"")}</textarea></div>`,
+    [{label:"保存",cls:"btn-primary",action:()=>{
+      s.name=document.getElementById("edit-name").value.trim()||s.name;
+      s.minDays=+document.getElementById("edit-min").value;s.maxDays=+document.getElementById("edit-max").value;
+      s.weekMax=+document.getElementById("edit-wmax").value;
+      s.times=Array.from(document.querySelectorAll("#modal-box .time-check input:checked")).map(c=>c.value);
+      s.memo=document.getElementById("edit-memo").value.trim();
+      saveState();renderStaffList();closeModal();
+    }},{label:"キャンセル",cls:"btn-secondary",action:closeModal}]);
+}
+
+function renderWishSection(){
+  const y=+document.getElementById("wish-year").value,m=+document.getElementById("wish-month").value;
+  updateHeaderPeriod();
+  const ymKey=getYMKey(y,m);if(!state.wishes[ymKey])state.wishes[ymKey]={};
+  const el=document.getElementById("wish-content");
+  if(!state.staffList.length){el.innerHTML='<p class="text-sm">スタッフを登録してから入力してください。</p>';return;}
+  el.innerHTML=state.staffList.map(s=>renderWishBlock(s,ymKey,getPeriodDates(y,m))).join("");
+}
+function renderWishBlock(s,ymKey,dates){
+  if(!state.wishes[ymKey][s.id])state.wishes[ymKey][s.id]={};
+  const w=state.wishes[ymKey][s.id],isReg=s.type==="regular";
+  const cells=dates.map(dateStr=>{
+    const d=parseDate(dateStr),wday=d.getDay(),op=getOpStatus(ymKey,dateStr);
+    const operating=op.status!=="closed",isEvt=op.status==="event",wish=w[dateStr];
+    let cls="wish-day";
+    if(!operating)cls+=" not-operating";
+    else if(isEvt)cls+=" is-event";
+    else if(wish?.time==="off")cls+=" off-day";
+    else if(wish?.time)cls+=isReg?" wished-regular":" wished-parttime";
+    const timeLabel=!operating?"休":(wish?(wish.time==="off"?"×":(wish.time||"")):"");
+    const wdayCls=wday===0?"day-wday-sun":wday===6?"day-wday-sat":"";
+    return`<div class="${cls}" onclick="${operating?`openWishModal('${s.id}','${dateStr}','${ymKey}')`:""}"
+      title="${dateStr}（${DAYS_JP[wday]}）${timeLabel?" → "+timeLabel:""}">
+      <span class="day-wday ${wdayCls}">${DAYS_JP[wday]}</span>
+      <span class="day-num">${d.getDate()}</span>
+      <span class="day-time">${timeLabel}</span></div>`;
+  }).join("");
+  const countW=Object.values(w).filter(x=>x.time&&x.time!=="off").length;
+  return`<div class="wish-staff-block" id="wblock-${s.id}">
+    <div class="staff-wish-header ${s.type}" onclick="toggleWishBlock('${s.id}')">
+      <span class="staff-badge ${isReg?"badge-regular":"badge-parttime"}">${isReg?"正規":"バイト"}</span>
+      <span style="font-weight:bold;flex:1">${escHtml(s.name)}</span>
+      <span class="text-sm">${countW}日登録済</span><span class="toggle-arrow">▼</span>
+    </div>
+    <div class="wish-calendar-inner" id="wcal-${s.id}">
+      <div class="wish-bulk-btns">
+        <button class="btn btn-sm btn-outline" onclick="wishBulk('${s.id}','${ymKey}','weekday')">平日全選択</button>
+        <button class="btn btn-sm btn-outline" onclick="wishBulk('${s.id}','${ymKey}','all')">全稼働日選択</button>
+        <button class="btn btn-sm btn-danger" onclick="wishBulk('${s.id}','${ymKey}','clear')">クリア</button>
+      </div>
+      <div class="wish-calendar">${cells}</div>
+    </div></div>`;
+}
+function toggleWishBlock(id){
+  const cal=document.getElementById(`wcal-${id}`),blk=document.getElementById(`wblock-${id}`);
+  const hide=cal.style.display!=="none";cal.style.display=hide?"none":"";blk.classList.toggle("collapsed",hide);
+}
+function wishBulk(staffId,ymKey,mode){
+  const s=state.staffList.find(x=>x.id===staffId);
+  const y=+document.getElementById("wish-year").value,m=+document.getElementById("wish-month").value;
+  if(!state.wishes[ymKey])state.wishes[ymKey]={};
+  if(!state.wishes[ymKey][staffId])state.wishes[ymKey][staffId]={};
+  const w=state.wishes[ymKey][staffId],dt=s.times[0]||(s.type==="regular"?"8:00":"9:30");
+  if(mode==="clear"){state.wishes[ymKey][staffId]={};}
+  else getPeriodDates(y,m).forEach(dateStr=>{
+    const op=getOpStatus(ymKey,dateStr);if(op.status==="closed")return;
+    const wday=wdayOf(dateStr);if(mode==="weekday"&&(wday===0||wday===6))return;
+    w[dateStr]={time:dt};
+  });
+  saveState();renderWishSection();
+}
+function openWishModal(staffId,dateStr,ymKey){
+  const s=state.staffList.find(x=>x.id===staffId),op=getOpStatus(ymKey,dateStr);
+  const isEvt=op.status==="event",cur=state.wishes[ymKey]?.[staffId]?.[dateStr]?.time||null;
+  const timeBtns=isEvt
+    ?`<button class="modal-time-btn ${cur===(op.startTime||"09:00")?"selected-time":""}" onclick="setWish('${staffId}','${dateStr}','${ymKey}','${op.startTime||"09:00"}')">
+        🎪 ${op.startTime||"09:00"}〜${op.endTime||"17:00"}（${escHtml(op.eventName||"イベント")}）</button>`
+    :s.times.map(t=>`<button class="modal-time-btn ${cur===t?"selected-time":""}" onclick="setWish('${staffId}','${dateStr}','${ymKey}','${t}')">${t}〜${s.type==="regular"?END_REGULAR:END_PARTTIME}</button>`).join("");
+  const d=parseDate(dateStr);
+  showModal(`${s.name}｜${dateStr}（${DAYS_JP[d.getDay()]}）`,
+    `<div class="modal-time-list">${timeBtns}
+      <button class="modal-time-btn off-btn ${cur==="off"?"selected-time":""}" onclick="setWish('${staffId}','${dateStr}','${ymKey}','off')">❌ この日は出勤しない</button>
+      <button class="modal-time-btn" onclick="setWish('${staffId}','${dateStr}','${ymKey}',null)">（登録なし）</button></div>`,
+    [{label:"キャンセル",cls:"btn-secondary",action:closeModal}]);
+}
+function setWish(staffId,dateStr,ymKey,time){
+  if(!state.wishes[ymKey])state.wishes[ymKey]={};
+  if(!state.wishes[ymKey][staffId])state.wishes[ymKey][staffId]={};
+  if(time===null)delete state.wishes[ymKey][staffId][dateStr];
+  else state.wishes[ymKey][staffId][dateStr]={time};
+  saveState();closeModal();renderWishSection();
+}
+
+function getShiftYM(){return{year:+document.getElementById("shift-year").value,month:+document.getElementById("shift-month").value};}
+function generateShift(){
+  const{year,month}=getShiftYM();const ymKey=getYMKey(year,month);
+  const allDates=getPeriodDates(year,month);const wishes=state.wishes[ymKey]||{};
+  if(!state.staffList.length){alert("スタッフを登録してください。");return;}
+  log("シフト自動生成中...");
+  const newShift={};
+  allDates.forEach(d=>{state.staffList.forEach(s=>{if(!newShift[s.id])newShift[s.id]={};newShift[s.id][d]={time:null,isOff:true,manual:false};});});
+  const monthCount={},weekCount={};
+  state.staffList.forEach(s=>{monthCount[s.id]=0;weekCount[s.id]={};});
+  const regulars=state.staffList.filter(s=>s.type==="regular");
+  const parttimes=state.staffList.filter(s=>s.type==="parttime");
+  function canWork(s,d){const wk=getWeekKey(d);return(weekCount[s.id][wk]||0)<s.weekMax&&monthCount[s.id]<s.maxDays;}
+  function assign(s,d,time){
+    newShift[s.id][d]={time,isOff:false,manual:false};
+    const wk=getWeekKey(d);weekCount[s.id][wk]=(weekCount[s.id][wk]||0)+1;monthCount[s.id]++;
+  }
+  function unassign(s,d){
+    newShift[s.id][d]={time:null,isOff:true,manual:false};
+    const wk=getWeekKey(d);if((weekCount[s.id][wk]||0)>0)weekCount[s.id][wk]--;if(monthCount[s.id]>0)monthCount[s.id]--;
+  }
+  function sortByBalance(list,d){
+    const wk=getWeekKey(d);
+    return[...list].sort((a,b)=>{
+      const dm=monthCount[a.id]-monthCount[b.id];if(dm!==0)return dm;
+      const dw=(weekCount[a.id][wk]||0)-(weekCount[b.id][wk]||0);if(dw!==0)return dw;
+      return Math.random()-.5;
+    });
+  }
+  function getWished(list,d){return sortByBalance(list.filter(s=>wishes[s.id]?.[d]?.time&&wishes[s.id][d].time!=="off"&&canWork(s,d)),d);}
+  function getNoWish(list,d){return sortByBalance(list.filter(s=>(!wishes[s.id]?.[d]?.time||wishes[s.id][d].time==="off")&&canWork(s,d)),d);}
+  const workDates=allDates.filter(d=>isOperating(ymKey,d));
+  workDates.forEach(dateStr=>{
+    const op=getOpStatus(ymKey,dateStr),isEvt=op.status==="event",satDay=isSat(dateStr);
+    if(isEvt){
+      const evStart=op.startTime||"09:00",needReg=op.regCount||0,needPt=op.ptCount||0;
+      let cr=0,cp=0;
+      for(const s of getWished(regulars,dateStr)){if(cr>=needReg)break;assign(s,dateStr,wishes[s.id][dateStr].time);cr++;}
+      for(const s of getNoWish(regulars,dateStr)){if(cr>=needReg)break;assign(s,dateStr,evStart);cr++;}
+      for(const s of getWished(parttimes,dateStr)){if(cp>=needPt)break;assign(s,dateStr,wishes[s.id][dateStr].time);cp++;}
+      for(const s of getNoWish(parttimes,dateStr)){if(cp>=needPt)break;assign(s,dateStr,evStart);cp++;}
+    }else{
+      const rules=getDayRules(ymKey,dateStr),coreTotal=satDay?Math.min(rules.core.minTotal,3):rules.core.minTotal,needReg=rules.core.minReg;
+      let cr=0,ct=0;
+      for(const s of getWished(regulars,dateStr)){if(cr>=needReg)break;assign(s,dateStr,wishes[s.id][dateStr].time);cr++;ct++;}
+      for(const s of getNoWish(regulars,dateStr)){if(cr>=needReg)break;assign(s,dateStr,s.times[0]||"9:00");cr++;ct++;}
+      let needMore=coreTotal-ct;
+      if(needMore>0){
+        for(const s of getWished(parttimes,dateStr)){if(needMore<=0)break;assign(s,dateStr,wishes[s.id][dateStr].time);needMore--;ct++;}
+        for(const s of getNoWish(parttimes,dateStr)){if(needMore<=0)break;assign(s,dateStr,s.times[0]||"9:30");needMore--;ct++;}
+        for(const s of getNoWish(regulars,dateStr)){if(needMore<=0)break;if(newShift[s.id][dateStr].isOff){assign(s,dateStr,s.times[0]||"9:00");needMore--;}}
+      }
+    }
+  });
+  state.staffList.forEach(s=>{
+    let excess=workDates.filter(d=>!newShift[s.id][d].isOff).length-s.maxDays;if(excess<=0)return;
+    const cands=workDates.filter(d=>!newShift[s.id][d].isOff&&(!wishes[s.id]?.[d]?.time||wishes[s.id][d].time==="off")&&getOpStatus(ymKey,d).status!=="event").reverse();
+    for(const dateStr of cands){
+      if(excess<=0)break;
+      const satDay=isSat(dateStr),rules=getDayRules(ymKey,dateStr);
+      const coreTotal=satDay?Math.min(rules.core.minTotal,3):rules.core.minTotal,minReg=rules.core.minReg;
+      const curTotal=state.staffList.filter(x=>!newShift[x.id][dateStr].isOff).length;
+      const curReg=regulars.filter(x=>!newShift[x.id][dateStr].isOff).length;
+      if(curTotal-1>=coreTotal&&(s.type==="regular"?curReg-1:curReg)>=minReg){unassign(s,dateStr);excess--;}
+    }
+  });
+  state.shifts[ymKey]=newShift;saveState();renderShiftSection();log(`シフト生成完了（${ymKey}）`);
+}
+
+function renderShiftSection(){
+  const{year,month}=getShiftYM();updateHeaderPeriod();
+  const ymKey=getYMKey(year,month),shift=state.shifts[ymKey];
+  const infoEl=document.getElementById("shift-info-area"),tableEl=document.getElementById("shift-table-content");
+  if(!shift){tableEl.innerHTML='<p class="text-sm">「シフト自動生成」を押してシフトを作成してください。</p>';infoEl.innerHTML="";return;}
+  const dates=getPeriodDates(year,month).filter(d=>isOperating(ymKey,d));
+  let html='<div class="shift-table-wrap"><table class="shift-tbl"><thead><tr><th class="th-staff">スタッフ</th>';
+  dates.forEach(d=>{
+    const dt=parseDate(d),wday=dt.getDay(),op=getOpStatus(ymKey,d),pat=getDayPattern(ymKey,d),isEvt=op.status==="event";
+    const color=wday===6?"color:#2563eb":wday===0?"color:#dc2626":"";
+    html+=`<th class="th-date" style="${color}${isEvt?";background:var(--purple-bg)":""}">${dt.getDate()}<br>
+      <small>${DAYS_JP[wday]}${isEvt?"🎪":""}</small><br>
+      <span style="font-size:.55rem;font-weight:normal;color:${pat==="A"?"#1d4ed8":"#a16207"}">P${pat}</span></th>`;
+  });
+  html+='<th>出勤計</th></tr></thead><tbody>';
+  state.staffList.forEach(s=>{
+    const isReg=s.type==="regular";
+    html+=`<tr><td class="td-staff ${s.type}">${escHtml(s.name)}</td>`;
+    let count=0;
+    dates.forEach(dateStr=>{
+      const cell=shift[s.id]?.[dateStr]||{isOff:true},working=!cell.isOff&&cell.time;
+      if(working)count++;
+      const op=getOpStatus(ymKey,dateStr),isEvt=op.status==="event";
+      const cellCls=working?(isEvt?"working-event":(isReg?"working-regular":"working-parttime")):"off";
+      const endT=isEvt?(op.endTime||"17:00"):(isReg?END_REGULAR:END_PARTTIME);
+      html+=`<td class="shift-cell ${cellCls}" id="sc_${s.id}_${dateStr}"
+        onclick="onShiftCellClick('${s.id}','${dateStr}','${ymKey}')"
+        title="${escHtml(s.name)} ${dateStr}: ${working?cell.time+"〜"+endT:"休み"}${cell.manual?" ✏️手動編集":""}"
+        style="position:relative">
+        ${working?`<span style="font-size:.75rem">${cell.time}</span>`:"−"}
+        ${cell.manual?'<span style="position:absolute;bottom:1px;right:1px;font-size:.6rem">✏️</span>':""}</td>`;
+    });
+    html+=`<td class="${count>=s.minDays?"count-ok":"count-ng"}">${count}日</td></tr>`;
+  });
+  html+='<tr class="summary-row"><td class="td-staff" style="position:sticky;left:0;background:#f8fafc;font-weight:bold">合計</td>';
+  const alertDates=[];
+  dates.forEach(dateStr=>{
+    const op=getOpStatus(ymKey,dateStr),isEvt=op.status==="event",satDay=isSat(dateStr);
+    const workers=state.staffList.filter(s=>!shift[s.id]?.[dateStr]?.isOff&&shift[s.id]?.[dateStr]?.time);
+    const regW=workers.filter(s=>s.type==="regular"),ptW=workers.filter(s=>s.type==="parttime");
+    const total=workers.length;
+    let ok;
+    if(isEvt){ok=regW.length>=(op.regCount||0)&&ptW.length>=(op.ptCount||0);}
+    else{const rules=getDayRules(ymKey,dateStr);const ct=satDay?Math.min(rules.core.minTotal,3):rules.core.minTotal;ok=total>=ct&&regW.length>=rules.core.minReg;}
+    if(!ok)alertDates.push(dateStr);
+    html+=`<td style="font-size:.7rem;${ok?"":"background:#fef2f2;color:#dc2626"}"><b>${total}</b><br><span style="color:#3b82f6">${regW.length}正</span></td>`;
+  });
+  html+='<td>−</td></tr></tbody></table></div>';
+  tableEl.innerHTML=html;
+  infoEl.innerHTML=alertDates.length
+    ?`<div class="info-box error">⚠️ 人数不足の日：${alertDates.map(d=>`${parseDate(d).getDate()}日`).join("、")}</div>`
+    :`<div class="info-box success">✅ 全日程、最小人数を満たしています。</div>`;
+}
+
+// ===== ★ シフトセルクリック（修正版：2クリックで時刻変更モーダル）=====
+function onShiftCellClick(staffId,dateStr,ymKey){
+  if(!selectedShiftCell){
+    // 1クリック目：選択
+    selectedShiftCell={staffId,dateStr,ymKey};
+    document.getElementById(`sc_${staffId}_${dateStr}`)?.classList.add("selected");
+    log(`選択中: ${staffId}/${dateStr} — 再クリック:時刻変更 / 別セル:交換`);
+  } else if(selectedShiftCell.staffId===staffId&&selectedShiftCell.dateStr===dateStr){
+    // 同じセルを再クリック → 時刻変更モーダル
+    clearShiftSelection();
+    openShiftEditModal(staffId,dateStr,ymKey);
+  } else {
+    // 別セルをクリック → 交換確認
+    showSwapConfirm(selectedShiftCell,{staffId,dateStr,ymKey},ymKey);
+  }
+}
+
+// ===== ★ シフト時刻変更モーダル =====
+function openShiftEditModal(staffId,dateStr,ymKey){
+  const s=state.staffList.find(x=>x.id===staffId);
+  if(!s)return;
+  const shift=state.shifts[ymKey];if(!shift)return;
+  const cell=shift[staffId]?.[dateStr]||{isOff:true};
+  const op=getOpStatus(ymKey,dateStr);
+  const isEvt=op.status==="event";
+  const isReg=s.type==="regular";
+  const d=parseDate(dateStr);
+  const wdayStr=DAYS_JP[d.getDay()];
+  const curTime=cell.isOff?null:cell.time;
+  const endT=isEvt?(op.endTime||"17:00"):(isReg?END_REGULAR:END_PARTTIME);
+
+  // 選択可能な時刻リスト
+  let times;
+  if(isEvt){
+    times=[op.startTime||"09:00"];
+  } else {
+    times=isReg?REGULAR_TIMES:PARTTIME_TIMES;
+  }
+
+  const timeBtns=times.map(t=>`
+    <button class="modal-time-btn ${curTime===t?"selected-time current":""}"
+      onclick="applyShiftEdit('${staffId}','${dateStr}','${ymKey}','${t}')">
+      ${curTime===t?"✅ ":""}${t} 〜 ${endT}${curTime===t?" （現在）":""}
+    </button>`).join("");
+
+  const body=`
+    <div style="font-size:.82rem;color:#6b7280;margin-bottom:12px">
+      ${escHtml(s.name)} / ${dateStr}（${wdayStr}）<br>
+      現在：<b>${curTime?curTime+"〜"+endT:"休み"}</b>
+    </div>
+    <div class="modal-time-list">
+      ${timeBtns}
+      <hr style="border:none;border-top:1px solid var(--border);margin:4px 0">
+      <button class="modal-time-btn off-btn ${cell.isOff?"selected-time current":""}"
+        onclick="applyShiftEdit('${staffId}','${dateStr}','${ymKey}','off')">
+        ${cell.isOff?"✅ ":""}🔴 休み（出勤なし）${cell.isOff?" （現在）":""}
+      </button>
+    </div>`;
+
+  showModal(`✏️ シフト変更：${escHtml(s.name)}`,body,
+    [{label:"キャンセル",cls:"btn-secondary",action:closeModal}]);
+}
+
+// ===== ★ シフト変更を適用 =====
+function applyShiftEdit(staffId,dateStr,ymKey,timeOrOff){
+  const shift=state.shifts[ymKey];if(!shift)return;
+  if(timeOrOff==="off"){
+    shift[staffId][dateStr]={time:null,isOff:true,manual:true};
+  } else {
+    shift[staffId][dateStr]={time:timeOrOff,isOff:false,manual:true};
+  }
+  saveState();closeModal();renderShiftSection();
+  const s=state.staffList.find(x=>x.id===staffId);
+  log(`手動変更: ${s?.name} ${dateStr} → ${timeOrOff==="off"?"休み":timeOrOff}`);
+}
+
+function clearShiftSelection(){
+  if(selectedShiftCell){
+    document.getElementById(`sc_${selectedShiftCell.staffId}_${selectedShiftCell.dateStr}`)?.classList.remove("selected");
+    selectedShiftCell=null;
+  }
+}
+document.addEventListener("click",e=>{
+  if(!e.target.closest(".shift-cell")&&!e.target.closest(".modal-overlay"))clearShiftSelection();
+});
+function showSwapConfirm(a,b,ymKey){
+  const shift=state.shifts[ymKey];if(!shift)return;
+  const sA=state.staffList.find(x=>x.id===a.staffId),sB=state.staffList.find(x=>x.id===b.staffId);
+  const cA=shift[a.staffId]?.[a.dateStr]||{isOff:true},cB=shift[b.staffId]?.[b.dateStr]||{isOff:true};
+  showModal("🔄 シフト交換確認",`<p style="margin-bottom:12px">以下のシフトを入れ替えますか？</p>
+    <div style="background:#f8fafc;padding:10px;border-radius:8px;line-height:2.2">
+      <div>📌 <b>${sA?.name}</b>（${a.dateStr}）：<b>${cA.isOff?"休み":cA.time+"〜出勤"}</b></div>
+      <div>📌 <b>${sB?.name}</b>（${b.dateStr}）：<b>${cB.isOff?"休み":cB.time+"〜出勤"}</b></div>
+    </div>`,
+    [{label:"交換する",cls:"btn-primary",action:()=>{
+      const tmp={...cA};
+      shift[a.staffId][a.dateStr]={...cB,manual:true};
+      shift[b.staffId][b.dateStr]={...tmp,manual:true};
+      saveState();clearShiftSelection();closeModal();renderShiftSection();
+      log(`交換: ${sA?.name}(${a.dateStr}) ↔ ${sB?.name}(${b.dateStr})`);
+    }},{label:"キャンセル",cls:"btn-secondary",action:()=>{clearShiftSelection();closeModal();}}]);
+}
+
+function renderTimeline(dateStr){
+  if(!dateStr)dateStr=tlCurrentDate||formatDate(new Date());
+  tlCurrentDate=dateStr;
+  const ymKey=ymKeyFromDate(dateStr),shift=state.shifts[ymKey],op=getOpStatus(ymKey,dateStr);
+  const el=document.getElementById("timeline-content");
+  const allOpDates=[];
+  Object.keys(state.shifts).forEach(ym=>{
+    const[y,m]=ym.split("-").map(Number);
+    getPeriodDates(y,m).forEach(d=>{if(isOperating(ym,d)&&state.shifts[ym]&&!allOpDates.includes(d))allOpDates.push(d);});
+  });
+  allOpDates.sort();
+  const curIdx=allOpDates.indexOf(dateStr);
+  const prevDate=curIdx>0?allOpDates[curIdx-1]:null,nextDate=curIdx<allOpDates.length-1?allOpDates[curIdx+1]:null;
+  let html=`<div class="tl-header">
+    <button class="btn btn-outline btn-sm" onclick="renderTimeline('${prevDate||dateStr}')" ${!prevDate?"disabled":""}>◀ 前の日</button>
+    <input type="date" value="${dateStr}" onchange="renderTimeline(this.value)" style="padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:.88rem">
+    <button class="btn btn-outline btn-sm" onclick="renderTimeline('${nextDate||dateStr}')" ${!nextDate?"disabled":""}>次の日 ▶</button>
+  </div>`;
+  if(!shift){html+=`<div class="info-box error">⚠️ ${ymKey} のシフトが見つかりません。</div>`;el.innerHTML=html;return;}
+  if(!isOperating(ymKey,dateStr)){html+='<p class="text-sm">この日は休館日です。</p>';el.innerHTML=html;return;}
+  const isEvt=op.status==="event",satDay=isSat(dateStr);
+  const rules=getDayRules(ymKey,dateStr),pattern=getDayPattern(ymKey,dateStr);
+  const openTime=isEvt?(op.startTime||"09:00"):(pattern==="A"?"8:00":"13:00");
+  const closeTime=isEvt?(op.endTime||"17:00"):"19:00";
+  const coreStart=isEvt?openTime:(pattern==="A"?"10:00":"14:45");
+  const startH=parseInt(openTime.split(":")[0]),endH=parseInt(closeTime.split(":")[0])+(parseInt(closeTime.split(":")[1]||0)>0?1:0);
+  const slots=[];for(let min=startH*60;min<endH*60;min+=30)slots.push(`${p2(Math.floor(min/60))}:${p2(min%60)}`);
+  const workers=state.staffList.filter(s=>{const c=shift[s.id]?.[dateStr];return c&&!c.isOff&&c.time;});
+  const d=parseDate(dateStr),wdayStr=DAYS_JP[d.getDay()];
+  let anyNg=false;
+  const slotCounts=slots.map(slotT=>{
+    const sm=toMin(slotT);let total=0,reg=0;
+    workers.forEach(s=>{
+      const c=shift[s.id][dateStr],start=toMin(c.time);
+      const end=isEvt?toMin(op.endTime||"17:00"):toMin(s.type==="regular"?END_REGULAR:END_PARTTIME);
+      if(sm>=start&&sm<end){total++;if(s.type==="regular")reg++;}
+    });
+    let needTotal,needReg;
+    if(isEvt){needTotal=(op.regCount||0)+(op.ptCount||0);needReg=op.regCount||0;}
+    else{
+      const ptEndMin=toMin(END_PARTTIME),coreMin=toMin(coreStart);
+      if(sm>=ptEndMin){needTotal=rules.postPT.minTotal;needReg=rules.postPT.minReg;}
+      else if(sm>=coreMin){needTotal=satDay?Math.min(rules.core.minTotal,3):rules.core.minTotal;needReg=rules.core.minReg;}
+      else{needTotal=rules.preCore.minTotal;needReg=rules.preCore.minReg;}
+    }
+    if(total<needTotal||reg<needReg)anyNg=true;
+    return{slotT,total,reg,needTotal,needReg};
+  });
+  html+=`<div class="tl-date-label">${dateStr.slice(5).replace("-","/")}（${wdayStr}）パターン${isEvt?"イベント":pattern}${isEvt?` <span class="event-tag">${escHtml(op.eventName||"")}</span>`:""}</div>`;
+  html+=`<div class="mt-8 mb-8"><span class="tl-status-badge ${anyNg?"tl-ng":"tl-ok"}">${anyNg?"⚠️ 人数不足あり":"✅ 人数OK"}</span></div>`;
+  html+=`<div class="tl-info">${isEvt?`開始 ${openTime}〜終了 ${closeTime}`:`開館 ${openTime}〜閉館 ${closeTime} ／ コアタイム ${coreStart}〜`}</div>`;
+  html+='<div class="tl-wrap"><table class="tl-table"><thead><tr><th class="tl-name-col">スタッフ</th>';
+  for(let h=startH;h<endH;h++)html+=`<th colspan="2" style="text-align:center;font-size:.72rem;padding:3px 0">${h}</th>`;
+  html+="</tr></thead><tbody>";
+  state.staffList.forEach(s=>{
+    const isReg=s.type==="regular",cell=shift[s.id]?.[dateStr];
+    const working=cell&&!cell.isOff&&cell.time;
+    const startMin=working?toMin(cell.time):-1;
+    const endT=working?(isEvt?(op.endTime||"17:00"):(isReg?END_REGULAR:END_PARTTIME)):null;
+    const endMin=working?toMin(endT):-1;
+    html+=`<tr><td class="tl-name-cell ${isReg?"reg":"pt"}">
+      <span class="staff-badge ${isReg?"badge-regular":"badge-parttime"}" style="font-size:.62rem">${isReg?"正規":"バイト"}</span>
+      ${escHtml(s.name)}<br><span style="font-size:.62rem;color:#6b7280">${working?cell.time+"〜":""}</span></td>`;
+    slots.forEach(slotT=>{
+      const sm=toMin(slotT),inShift=working&&sm>=startMin&&sm<endMin;
+      html+=`<td class="tl-slot" style="background:${inShift?(isReg?"var(--blue-cell)":"var(--yellow-cell)"):"#f9fafb"}" title="${escHtml(s.name)} ${slotT}${inShift?" 在席":""}"></td>`;
+    });
+    html+="</tr>";
+  });
+  html+=`<tr><td class="tl-name-cell sum">合計人数</td>`;
+  slotCounts.forEach(({slotT,total,needTotal})=>{
+    const ok=total>=needTotal;
+    html+=`<td class="tl-slot ${total===0?"tl-count-zero":ok?"tl-count-ok":"tl-count-ng"}" title="${slotT}: ${total}人（必要${needTotal}人）">${total}</td>`;
+  });
+  html+=`</tr><tr><td class="tl-name-cell sum" style="color:var(--blue-dark)">うち正規</td>`;
+  slotCounts.forEach(({slotT,reg,needReg})=>{
+    const ok=reg>=needReg;
+    html+=`<td class="tl-slot ${reg===0?"tl-count-zero":ok?"tl-count-ok":"tl-count-ng"}" style="${!ok&&reg>0?"background:#fef3c7;color:#92400e":""}" title="${slotT}: 正規${reg}人（必要${needReg}人）">${reg}</td>`;
+  });
+  html+=`</tr></tbody></table></div>`;
+  html+=`<div class="tl-legend">
+    <div class="tl-legend-item"><div class="tl-legend-dot" style="background:var(--blue-cell)"></div>正規在籍</div>
+    <div class="tl-legend-item"><div class="tl-legend-dot" style="background:var(--yellow-cell)"></div>バイト在籍</div>
+    <div class="tl-legend-item"><div class="tl-legend-dot" style="background:#bbf7d0"></div>人数OK</div>
+    <div class="tl-legend-item"><div class="tl-legend-dot" style="background:#fecaca"></div>人数不足</div>
+    ${!isEvt?`<span class="text-sm">※ ${coreStart}〜 が${satDay?3:4}人体制開始</span>`:""}
+  </div>`;
+  el.innerHTML=html;
+}
+
+function switchTab(tab){
+  const tabs=["staff","operating","wish","shift","timeline","settings"];
+  tabs.forEach(t=>document.getElementById(`sec-${t}`).classList.toggle("active",t===tab));
+  document.querySelectorAll(".tab-btn").forEach((btn,i)=>{btn.classList.toggle("active",tabs[i]===tab);btn.setAttribute("aria-selected",tabs[i]===tab);});
+  if(tab==="operating"){renderOperatingSection();renderRuleSection();}
+  if(tab==="wish")renderWishSection();
+  if(tab==="shift")renderShiftSection();
+  if(tab==="timeline")renderTimeline(tlCurrentDate||formatDate(new Date()));
+}
+
+function exportCSV(){
+  const{year,month}=getShiftYM(),ymKey=getYMKey(year,month),shift=state.shifts[ymKey];
+  if(!shift){alert("シフトを生成してから出力してください。");return;}
+  const dates=getPeriodDates(year,month).filter(d=>isOperating(ymKey,d));
+  let csv="スタッフ名,区分,"+dates.map(d=>{const dt=parseDate(d);return`${dt.getMonth()+1}/${dt.getDate()}(${DAYS_JP[dt.getDay()]})`;}).join(",")+",出勤合計\n";
+  state.staffList.forEach(s=>{
+    let cnt=0;
+    const row=[`"${s.name}"`,s.type==="regular"?"正規":"アルバイト",...dates.map(d=>{const c=shift[s.id]?.[d];if(!c||c.isOff)return"休";cnt++;return c.time;}),cnt];
+    csv+=row.join(",")+"\n";
+  });
+  const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
+  const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`shift_${ymKey}.csv`;a.click();URL.revokeObjectURL(url);
+}
+function printShift(){switchTab("shift");setTimeout(()=>window.print(),300);}
+function exportData(){
+  const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=`backup_${formatDate(new Date())}.json`;a.click();URL.revokeObjectURL(url);
+}
+function importData(e){
+  const file=e.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try{const imp=JSON.parse(ev.target.result);if(!imp.staffList)throw new Error("不正なデータ形式");
+      if(!confirm("上書きしてインポートしますか？"))return;
+      state=imp;saveState();renderStaffList();renderOperatingSection();renderRuleSection();renderWishSection();renderShiftSection();
+    }catch(err){alert("インポートエラー: "+err.message);}
+  };reader.readAsText(file);
+}
+function clearAllData(){
+  if(!confirm("全データを削除しますか？元に戻せません。"))return;
+  state={staffList:[],wishes:{},shifts:{},operating:{},periodRules:{}};
+  saveState();renderStaffList();renderOperatingSection();renderRuleSection();renderWishSection();renderShiftSection();
+  renderTimeline(formatDate(new Date()));
+}
+
+function showModal(title,body,buttons){
+  document.getElementById("modal-title").textContent=title;document.getElementById("modal-body").innerHTML=body;
+  currentModalBtns=buttons;
+  document.getElementById("modal-footer").innerHTML=buttons.map((b,i)=>`<button class="btn ${b.cls}" onclick="__mb(${i})">${b.label}</button>`).join("");
+  document.getElementById("modal-overlay").classList.remove("hidden");
+}
+function __mb(i){if(currentModalBtns?.[i])currentModalBtns[i].action();}
+function closeModal(){document.getElementById("modal-overlay").classList.add("hidden");currentModalBtns=null;}
+function closeModalOnOverlay(e){if(e.target===document.getElementById("modal-overlay"))closeModal();}
+
+init();
+</script>
+</body>
+</html>
