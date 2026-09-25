@@ -344,6 +344,7 @@
       <span>🖱️ <b>選択中に再クリック</b>：時刻・出欠を変更</span>
       <span>🔄 <b>別のセルをクリック</b>：2セルを交換</span>
     </div>
+    <div id="shift-publish-area"></div>
     <div id="shift-info-area"></div>
   </div>
   <div class="card"><div id="shift-table-content"></div></div>
@@ -402,7 +403,7 @@ const DEFAULT_RULES={
   B:{open:"13:00",coreStart:"14:45",close:"19:00",
      preCore:{minTotal:2,minReg:2},core:{minTotal:4,minReg:2},postPT:{minTotal:2,minReg:2}}
 };
-let state={staffList:[],wishes:{},shifts:{},operating:{},periodRules:{}};
+let state={staffList:[],wishes:{},shifts:{},operating:{},periodRules:{},published:{},wishSync:{}};
 let selectedShiftCell=null,currentModalBtns=null,tlCurrentDate="";
 
 const p2=n=>String(n).padStart(2,"0");
@@ -452,13 +453,15 @@ function init(){
 // saveState() を呼ぶとインターネット上に保存され、他の人の変更は onCloudData() で届く。
 function saveState(){if(window.cloudSave)window.cloudSave(state);}
 let appStarted=false;
+function ensureStateShape(){for(const k of["wishes","shifts","operating","periodRules","published","wishSync"])if(!state[k])state[k]={};if(!state.staffList)state.staffList=[];}
+const stableJSON=v=>JSON.stringify(v,(k,x)=>x&&typeof x==="object"&&!Array.isArray(x)?Object.keys(x).sort().reduce((o,key)=>(o[key]=x[key],o),{}):x);
 function onCloudData(newState){
   const json=JSON.stringify(newState);
-  if(appStarted&&json===JSON.stringify(state))return;
-  state=JSON.parse(json);
+  if(appStarted&&stableJSON(newState)===stableJSON(state))return;
+  state=JSON.parse(json);ensureStateShape();
   if(!appStarted){appStarted=true;init();return;}
   renderStaffList();renderOperatingSection();renderRuleSection();renderWishSection();renderShiftSection();
-  renderTimeline();log("他の端末での変更を反映しました");
+  renderTimeline();log("最新の内容を反映しました");
 }
 function log(msg){document.getElementById("log-area").textContent=`[${new Date().toLocaleTimeString("ja-JP")}] ${msg}`;}
 function buildSelectors(){
@@ -688,6 +691,7 @@ function renderStaffList(){
         <div class="staff-info">月${s.minDays}〜${s.maxDays}日 / 週最大${s.weekMax}日 ／ ${s.times.join(" ")} 〜 ${s.type==="regular"?END_REGULAR:END_PARTTIME}</div>
         ${s.memo?`<div class="staff-info" style="color:#6b7280">💬 ${escHtml(s.memo)}</div>`:""}
       </div>
+      <button class="btn btn-sm btn-outline" onclick="openPortalModal('${s.id}')" title="希望入力用の専用リンク">🔗${s.portalToken?"":"<small>未発行</small>"}</button>
       <button class="btn btn-sm btn-outline" onclick="editStaff('${s.id}')">✏️</button>
       <button class="btn btn-sm btn-danger" onclick="deleteStaff('${s.id}')">🗑️</button>
     </div>`).join("");
@@ -872,12 +876,15 @@ function generateShift(){
       if(curTotal-1>=coreTotal&&(s.type==="regular"?curReg-1:curReg)>=minReg){unassign(s,dateStr);excess--;}
     }
   });
-  state.shifts[ymKey]=newShift;saveState();renderShiftSection();log(`シフト生成完了（${ymKey}）`);
+  state.shifts[ymKey]=newShift;
+  Object.values(state.wishSync[ymKey]||{}).forEach(w=>{delete w.afterShift;});
+  saveState();renderShiftSection();log(`シフト生成完了（${ymKey}）`);
 }
 
 function renderShiftSection(){
   const{year,month}=getShiftYM();updateHeaderPeriod();
   const ymKey=getYMKey(year,month),shift=state.shifts[ymKey];
+  renderPublishArea(ymKey);
   const infoEl=document.getElementById("shift-info-area"),tableEl=document.getElementById("shift-table-content");
   if(!shift){tableEl.innerHTML='<p class="text-sm">「シフト自動生成」を押してシフトを作成してください。</p>';infoEl.innerHTML="";return;}
   const dates=getPeriodDates(year,month).filter(d=>isOperating(ymKey,d));
@@ -1186,16 +1193,110 @@ function importData(e){
   reader.onload=ev=>{
     try{const imp=JSON.parse(ev.target.result);if(!imp.staffList)throw new Error("不正なデータ形式");
       if(!confirm("上書きしてインポートしますか？"))return;
-      state=imp;saveState();renderStaffList();renderOperatingSection();renderRuleSection();renderWishSection();renderShiftSection();
+      state=imp;ensureStateShape();saveState();renderStaffList();renderOperatingSection();renderRuleSection();renderWishSection();renderShiftSection();
     }catch(err){alert("インポートエラー: "+err.message);}
   };reader.readAsText(file);
 }
 function clearAllData(){
   if(!confirm("全データを削除しますか？元に戻せません。"))return;
-  state={staffList:[],wishes:{},shifts:{},operating:{},periodRules:{}};
+  state={staffList:[],wishes:{},shifts:{},operating:{},periodRules:{},published:{},wishSync:{}};
   saveState();renderStaffList();renderOperatingSection();renderRuleSection();renderWishSection();renderShiftSection();
   renderTimeline(formatDate(new Date()));
 }
+
+// ===== スタッフ用の専用リンク（希望入力・シフト確認）=====
+function newPortalToken(){const a=new Uint8Array(16);crypto.getRandomValues(a);return Array.from(a,b=>b.toString(16).padStart(2,"0")).join("");}
+function portalURL(token){return new URL("wish.html?k="+token,location.href).href;}
+function openPortalModal(staffId){
+  const s=state.staffList.find(x=>x.id===staffId);if(!s)return;
+  if(!s.portalToken){
+    showModal(`${s.name}さんの専用リンク`,
+      `<p class="text-sm">リンクを発行すると、${escHtml(s.name)}さんがスマホから自分の出勤希望を入力したり、公開したシフトを見たりできるようになります。<br>ログインもパスワードも不要です。本人以外には送らないでください。</p>`,
+      [{label:"キャンセル",cls:"btn-secondary",action:closeModal},
+       {label:"🔗 発行する",cls:"btn-primary",action:()=>{s.portalToken=newPortalToken();saveState();renderStaffList();openPortalModal(staffId);}}]);
+    return;
+  }
+  const url=portalURL(s.portalToken);
+  showModal(`${s.name}さんの専用リンク`,
+    `<p class="text-sm mb-8">このリンクを本人に送ってください（LINE など）。</p>
+     <input type="text" id="portal-url" readonly value="${escHtml(url)}" style="width:100%;font-size:.8rem" onclick="this.select()">
+     <p class="text-sm mt-8">⚠️ 本人以外には送らないでください。漏れたときは「作り直す」を押すと、古いリンクは使えなくなります。</p>`,
+    [{label:"📋 コピー",cls:"btn-primary",action:()=>copyPortalURL(url)},
+     ...(navigator.share?[{label:"📤 送る",cls:"btn-outline",action:()=>navigator.share({title:"ピノキオシフト 希望入力",text:`${s.name}さんの希望入力用リンクです`,url}).catch(()=>{})}]:[]),
+     {label:"🔄 作り直す",cls:"btn-outline",action:()=>{if(!confirm("リンクを作り直しますか？\n今のリンクは使えなくなります。"))return;s.portalToken=newPortalToken();saveState();renderStaffList();openPortalModal(staffId);}},
+     {label:"🚫 無効にする",cls:"btn-danger",action:()=>{if(!confirm("リンクを無効にしますか？"))return;delete s.portalToken;saveState();renderStaffList();closeModal();}},
+     {label:"閉じる",cls:"btn-secondary",action:closeModal}]);
+}
+function copyPortalURL(url){
+  const done=()=>{log("リンクをコピーしました");alert("コピーしました。LINE などに貼り付けて送ってください。");};
+  if(navigator.clipboard)navigator.clipboard.writeText(url).then(done,()=>{document.getElementById("portal-url").select();document.execCommand("copy");done();});
+  else{document.getElementById("portal-url").select();document.execCommand("copy");done();}
+}
+function renderPublishArea(ymKey){
+  const el=document.getElementById("shift-publish-area");if(!el)return;
+  let html="";
+  const changed=Object.entries(state.wishSync[ymKey]||{}).filter(([,w])=>w.afterShift)
+    .map(([id])=>state.staffList.find(s=>s.id===id)?.name).filter(Boolean);
+  if(changed.length&&state.shifts[ymKey])html+=`<div class="info-box error">🔔 シフト作成後に希望が変わりました：<b>${changed.map(escHtml).join("、")}</b>
+    <div class="mt-8"><button class="btn btn-sm btn-outline" onclick="ackWishChanges('${ymKey}')">確認した（お知らせを消す）</button></div></div>`;
+  if(state.shifts[ymKey]){
+    html+=state.published[ymKey]
+      ?`<div class="info-box success">✅ この月のシフトはスタッフに公開中です（専用リンクから自分の出勤日が見えます）
+          <div class="mt-8"><button class="btn btn-sm btn-outline" onclick="setPublished('${ymKey}',false)">非公開に戻す</button></div></div>`
+      :`<div class="info-box">この月のシフトはまだスタッフに公開していません。
+          <div class="mt-8"><button class="btn btn-sm btn-primary" onclick="setPublished('${ymKey}',true)">📣 スタッフに公開する</button></div></div>`;
+  }
+  el.innerHTML=html;
+}
+function setPublished(ymKey,on){
+  if(on&&!confirm("このシフトをスタッフに公開しますか？\n（公開後に手直しした内容も、そのままスタッフに見えます）"))return;
+  if(on)state.published[ymKey]=true;else delete state.published[ymKey];
+  saveState();renderShiftSection();log(on?"シフトを公開しました":"シフトを非公開にしました");
+}
+function ackWishChanges(ymKey){Object.values(state.wishSync[ymKey]||{}).forEach(w=>{delete w.afterShift;});saveState();renderShiftSection();}
+// スタッフ用ページに見せる内容（本人の分だけ）。cloud.js が Firebase に書き出す
+function buildPortalViews(){
+  const views={},today=formatDate(new Date()),base=parseDate(ymKeyFromDate(today)+"-01");
+  const yms=[-1,0,1,2].map(i=>{const d=new Date(base.getFullYear(),base.getMonth()+i,1);return{y:d.getFullYear(),m:d.getMonth()+1};});
+  state.staffList.forEach(s=>{
+    if(!s.portalToken)return;
+    const end=s.type==="regular"?END_REGULAR:END_PARTTIME;
+    views[s.portalToken]={name:s.name,type:s.type,times:s.times,end,
+      months:yms.map(({y,m})=>{
+        const ymKey=getYMKey(y,m),dates=getPeriodDates(y,m),w=state.wishes[ymKey]?.[s.id]||{},sh=state.shifts[ymKey];
+        const days=dates.map(d=>{const op=getOpStatus(ymKey,d);const o={d,st:op.status};
+          if(op.status==="event"){o.ev=op.eventName||"イベント";o.start=op.startTime||"09:00";o.end=op.endTime||"17:00";}return o;});
+        const wishes={};Object.entries(w).forEach(([d,v])=>{if(v?.time)wishes[d]=v.time;});
+        let shift=null;
+        if(sh&&state.published[ymKey]){shift={};dates.forEach(d=>{const c=sh[s.id]?.[d];if(c&&!c.isOff&&c.time&&isOperating(ymKey,d)){const op=getOpStatus(ymKey,d);shift[d]={time:c.time,end:op.status==="event"?(op.endTime||"17:00"):end};}});}
+        return{ym:ymKey,label:`${m}月分`,range:getPeriodLabel(y,m),days,wishes,wishAt:state.wishSync[ymKey]?.[s.id]?.at||0,shift};
+      })};
+  });
+  return views;
+}
+// スタッフが専用リンクから出した希望を取り込む（新しいものだけ）。変わったら true
+function applyWishSubmissions(subs){
+  let changed=false;
+  subs.forEach(sub=>{
+    const s=state.staffList.find(x=>x.portalToken&&x.portalToken===sub.token);if(!s)return;
+    const ym=sub.ym,[y,m]=ym.split("-").map(Number);if(!y||!m)return;
+    const prev=state.wishSync[ym]?.[s.id]?.at||0;if(!(sub.at>prev))return;
+    const valid=new Set(getPeriodDates(y,m)),w={};
+    Object.entries(sub.days||{}).forEach(([d,t])=>{
+      if(!valid.has(d)||typeof t!=="string")return;
+      const op=getOpStatus(ym,d);if(op.status==="closed")return;
+      const ok=t==="off"||(op.status==="event"?t===(op.startTime||"09:00"):s.times.includes(t));
+      if(ok)w[d]={time:t};
+    });
+    if(!state.wishes[ym])state.wishes[ym]={};
+    state.wishes[ym][s.id]=w;
+    if(!state.wishSync[ym])state.wishSync[ym]={};
+    state.wishSync[ym][s.id]={at:sub.at,...(state.shifts[ym]?{afterShift:true}:{})};
+    changed=true;log(`${s.name}さんの出勤希望が届きました（${ym}）`);
+  });
+  return changed;
+}
+function refreshAll(){renderStaffList();renderOperatingSection();renderRuleSection();renderWishSection();renderShiftSection();renderTimeline();}
 
 function showModal(title,body,buttons){
   document.getElementById("modal-title").textContent=title;document.getElementById("modal-body").innerHTML=body;

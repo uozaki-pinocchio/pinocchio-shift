@@ -3,10 +3,11 @@
 // つながっているときは毎回まず最新版を取りに行くので、アプリを直せばすぐ反映される。
 // （シフトのデータそのものは Firebase が別に端末へ控えているので、ここでは扱わない）
 
-const CACHE = "pinocchio-shift-v1";
+const CACHE = "pinocchio-shift-v2";
 const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/";
 const PRECACHE = [
   "./", "./index.html", "./cloud.js", "./firebase-config.js", "./manifest.json",
+  "./wish.html", "./wish.js",
   "./icons/icon-192.png", "./icons/apple-touch-icon.png", "./icons/favicon.png"
 ];
 
@@ -40,7 +41,9 @@ self.addEventListener("fetch", event => {
       })
       .catch(() =>
         caches.match(req, { ignoreSearch: true }).then(hit =>
-          hit || (req.mode === "navigate" ? caches.match("./index.html") : Response.error())
+          hit || (req.mode === "navigate"
+            ? caches.match(url.pathname.endsWith("wish.html") ? "./wish.html" : "./index.html")
+            : Response.error())
         )
       )
   );

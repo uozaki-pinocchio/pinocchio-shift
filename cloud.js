@@ -6,7 +6,9 @@
 //
 // 保存の形（Firestore）：
 //   appData/staff        … { staffList }
-//   months/{年-月}       … { wishes, shifts, operating, periodRules } のうち、その月の分
+//   months/{年-月}       … { wishes, shifts, operating, periodRules, published, wishSync } のうち、その月の分
+//   portals/{合言葉}     … スタッフ用ページに見せる本人の分だけの情報（管理者が書き出す）
+//   submissions/{合言葉_年-月} … スタッフが専用リンクから出した希望（管理者の画面が取り込む）
 // 月ごとに分けているのは、1つの入れ物の大きさ上限（約1MB）に年々近づかないようにするため。
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
@@ -19,7 +21,14 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
-const MONTH_FIELDS = ["wishes", "shifts", "operating", "periodRules"];
+// 中身が同じかどうかを比べるための文字列化。Firebase は項目の並び順を変えて返すことがあるので、
+// 並び順をそろえてから比べる（そろえないと、同じ内容を何度も保存し直してしまう）
+const stable = v => JSON.stringify(v, (k, x) =>
+  x && typeof x === "object" && !Array.isArray(x)
+    ? Object.keys(x).sort().reduce((o, key) => (o[key] = x[key], o), {})
+    : x);
+
+const MONTH_FIELDS = ["wishes", "shifts", "operating", "periodRules", "published", "wishSync"];
 
 const $ = id => document.getElementById(id);
 const loginScreen = $("login-screen"), loginForm = $("login-form"), loginLead = $("login-lead");
@@ -44,6 +53,8 @@ const db = initializeFirestore(app, {
 });
 const staffRef = doc(db, "appData", "staff");
 const monthsCol = collection(db, "months");
+const portalsCol = collection(db, "portals");
+const submissionsCol = collection(db, "submissions");
 
 // ---- ログイン ----
 loginForm.addEventListener("submit", async e => {
@@ -74,15 +85,33 @@ window.cloudLogout = async () => {
 let unsubs = [];
 let staffData = null;          // appData/staff の中身（届くまで null）
 let monthsData = null;         // { "2026-10": {...}, ... }（届くまで null）
+let submissions = null;        // スタッフから届いた希望の一覧（届くまで null）
+let portalsKnown = null;       // 今クラウドにあるスタッフ用ページの合言葉 → 中身(JSON)
+let firstPublished = false;
 const knownJSON = new Map();   // 文書ごとの「今クラウドにある中身」。変わった所だけ送るのに使う
 
 function publish() {
   if (staffData === null || monthsData === null) return;
-  const state = { staffList: staffData.staffList || [], wishes: {}, shifts: {}, operating: {}, periodRules: {} };
+  const state = { staffList: staffData.staffList || [] };
+  for (const f of MONTH_FIELDS) state[f] = {};
   for (const [ym, m] of Object.entries(monthsData)) {
     for (const f of MONTH_FIELDS) if (m[f] !== undefined) state[f][ym] = m[f];
   }
   window.onCloudData(state);
+  applySubmissions();
+}
+
+// スタッフが出した希望を画面側に渡して取り込んでもらう
+function applySubmissions() {
+  if (staffData === null || monthsData === null || submissions === null || portalsKnown === null) return;
+  if (!firstPublished) {
+    firstPublished = true;
+    window.saveState(); // 起動時に一度、スタッフ用ページの内容（対象の月など）を最新にしておく
+  }
+  if (window.applyWishSubmissions(submissions)) {
+    window.saveState();
+    window.refreshAll();
+  }
 }
 
 function onReadError(err) {
@@ -104,7 +133,7 @@ onAuthStateChanged(auth, user => {
   setSync("読み込み中...");
   unsubs.push(onSnapshot(staffRef, { includeMetadataChanges: true }, snap => {
     staffData = snap.exists() ? snap.data() : {};
-    knownJSON.set("staff", JSON.stringify({ staffList: staffData.staffList || [] }));
+    knownJSON.set("staff", stable({ staffList: staffData.staffList || [] }));
     updateSyncFromMeta(snap.metadata);
     publish();
   }, onReadError));
@@ -113,10 +142,23 @@ onAuthStateChanged(auth, user => {
     for (const [key] of knownJSON) if (key.startsWith("month:")) knownJSON.delete(key);
     snap.forEach(d => {
       monthsData[d.id] = d.data();
-      knownJSON.set("month:" + d.id, JSON.stringify(pickMonth(d.data())));
+      knownJSON.set("month:" + d.id, stable(pickMonth(d.data())));
     });
     updateSyncFromMeta(snap.metadata);
     publish();
+  }, onReadError));
+  unsubs.push(onSnapshot(portalsCol, snap => {
+    portalsKnown = new Map();
+    snap.forEach(d => portalsKnown.set(d.id, stable(d.data())));
+    applySubmissions();
+  }, onReadError));
+  unsubs.push(onSnapshot(submissionsCol, snap => {
+    submissions = [];
+    snap.forEach(d => {
+      const v = d.data();
+      if (v.updatedAt) submissions.push({ token: v.token, ym: v.ym, days: v.days, at: v.updatedAt.toMillis() });
+    });
+    applySubmissions();
   }, onReadError));
 });
 
@@ -144,12 +186,12 @@ window.addEventListener("offline", () => setSync("📴 オフライン（つな�
 window.cloudSave = state => {
   if (!auth.currentUser) return;
   // JSON を通すと、Firestore が受け付けない undefined などが取り除かれる
-  const clean = JSON.parse(JSON.stringify(state));
+  const clean = JSON.parse(JSON.stringify(state)); // （これは比較ではなく、余分な値を落とすため）
   const batch = writeBatch(db);
   let changes = 0;
 
   const staffDoc = { staffList: clean.staffList || [] };
-  const staffJSON = JSON.stringify(staffDoc);
+  const staffJSON = stable(staffDoc);
   if (knownJSON.get("staff") !== staffJSON) {
     batch.set(staffRef, staffDoc); knownJSON.set("staff", staffJSON); changes++;
   }
@@ -159,7 +201,7 @@ window.cloudSave = state => {
   for (const ym of months) {
     const m = {};
     for (const f of MONTH_FIELDS) if (clean[f] && clean[f][ym] !== undefined) m[f] = clean[f][ym];
-    const json = JSON.stringify(m);
+    const json = stable(m);
     if (knownJSON.get("month:" + ym) !== json) {
       batch.set(doc(monthsCol, ym), m); knownJSON.set("month:" + ym, json); changes++;
     }
@@ -168,6 +210,19 @@ window.cloudSave = state => {
   for (const key of [...knownJSON.keys()]) {
     if (key.startsWith("month:") && !months.has(key.slice(6))) {
       batch.delete(doc(monthsCol, key.slice(6))); knownJSON.delete(key); changes++;
+    }
+  }
+  // スタッフ用ページ（本人の分だけ）。読み込みが済んでから扱う
+  if (portalsKnown !== null) {
+    const views = window.buildPortalViews();
+    for (const [token, view] of Object.entries(views)) {
+      const json = stable(view);
+      if (portalsKnown.get(token) !== json) {
+        batch.set(doc(portalsCol, token), view); portalsKnown.set(token, json); changes++;
+      }
+    }
+    for (const token of [...portalsKnown.keys()]) {
+      if (!(token in views)) { batch.delete(doc(portalsCol, token)); portalsKnown.delete(token); changes++; }
     }
   }
   if (!changes) return;

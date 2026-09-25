@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ピノキオシフト｜出勤希望</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#1d4ed8">
+<link rel="icon" type="image/png" href="icons/favicon.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ピノキオシフト">
+<!-- ※ manifest はつけない：つけるとホーム画面に追加したとき管理者用ページが開いてしまうため。
+     つけなければ、この専用リンクそのものがホーム画面に追加される -->
+<style>
+  :root{--blue:#1d4ed8;--blue2:#3b82f6;--blue-bg:#dbeafe;--yellow-bg:#fef9c3;--yellow-dark:#a16207;
+    --purple-bg:#ede9fe;--purple-dark:#6d28d9;--red:#dc2626;--red-bg:#fee2e2;--border:#d1d5db;--text:#1f2937;--muted:#6b7280}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:#f8fafc;color:var(--text);font-size:15px;padding-bottom:96px}
+  header{background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;padding:12px 16px;position:sticky;top:0;z-index:10}
+  header h1{font-size:1.05rem}
+  header .who{font-size:.85rem;opacity:.9;margin-top:2px}
+  nav{display:flex;background:#fff;border-bottom:1px solid var(--border);position:sticky;top:58px;z-index:9}
+  nav button{flex:1;padding:12px 4px;border:none;background:none;font-size:.95rem;color:var(--muted);border-bottom:3px solid transparent;cursor:pointer}
+  nav button.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:bold}
+  main{max-width:640px;margin:0 auto;padding:12px 16px}
+  .months{display:flex;gap:8px;overflow-x:auto;padding:4px 0 12px}
+  .months button{flex:none;padding:8px 14px;border-radius:999px;border:1.5px solid var(--border);background:#fff;font-size:.9rem;cursor:pointer}
+  .months button.active{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:bold}
+  .range{font-size:.82rem;color:var(--muted);margin-bottom:10px}
+  .note{background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;font-size:.85rem;margin-bottom:12px;line-height:1.6}
+  .note.warn{background:var(--yellow-bg);border-color:#fde047}
+  .note.error{background:#fef2f2;border-color:#fecaca}
+  .days{background:#fff;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  .day{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid #eef0f3;min-height:52px}
+  .day:last-child{border-bottom:none}
+  .day.tap{cursor:pointer}
+  .day.tap:active{background:#f1f5f9}
+  .day .date{min-width:92px;flex:none;font-weight:bold;white-space:nowrap}
+  .day .date small{font-weight:normal;margin-left:2px}
+  .sat{color:#2563eb}.sun{color:var(--red)}
+  .day .info{flex:1;font-size:.8rem;color:var(--purple-dark)}
+  .day .val{flex:none;min-width:92px;text-align:center;padding:6px 10px;border-radius:8px;font-size:.9rem;border:1.5px dashed var(--border);color:var(--muted)}
+  .val.work{border-style:solid;background:var(--blue-bg);border-color:#93c5fd;color:var(--blue);font-weight:bold}
+  .val.off{border-style:solid;background:var(--red-bg);border-color:#fca5a5;color:var(--red);font-weight:bold}
+  .day.closed{background:#f3f4f6;color:#9ca3af}
+  .day.closed .val{border:none}
+  .bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--border);padding:10px 16px calc(10px + env(safe-area-inset-bottom));
+    display:flex;align-items:center;gap:10px;z-index:20}
+  .bar .status{flex:1;font-size:.82rem;color:var(--muted);line-height:1.4}
+  .bar .status.dirty{color:var(--yellow-dark);font-weight:bold}
+  .btn{padding:12px 20px;border-radius:10px;border:none;font-size:1rem;font-weight:bold;cursor:pointer}
+  .btn-primary{background:var(--blue);color:#fff}
+  .btn-primary:disabled{background:#93c5fd}
+  .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:30;display:flex;align-items:flex-end;justify-content:center}
+  .sheet{background:#fff;width:100%;max-width:640px;border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));max-height:85vh;overflow-y:auto}
+  .sheet h2{font-size:1rem;margin-bottom:12px}
+  .sheet button{display:block;width:100%;text-align:left;padding:14px;margin-bottom:8px;border-radius:10px;border:1.5px solid var(--border);background:#fff;font-size:1rem;cursor:pointer}
+  .sheet button.sel{border-color:var(--blue);background:var(--blue-bg);font-weight:bold}
+  .sheet button.offb{color:var(--red)}
+  .sheet button.cancel{text-align:center;background:#f3f4f6;border-color:#f3f4f6}
+  .shift-list .day .val{border-style:solid;background:var(--blue-bg);border-color:#93c5fd;color:var(--blue);font-weight:bold;min-width:120px}
+  .count{font-size:.9rem;margin-bottom:10px}
+  .hidden{display:none!important}
+  .center{text-align:center;padding:48px 16px;color:var(--muted);line-height:1.8}
+</style>
+</head>
+<body>
+<header>
+  <h1>🐟 ピノキオシフト</h1>
+  <div class="who" id="who">読み込み中...</div>
+</header>
+<nav id="tabs" class="hidden">
+  <button id="tab-wish" class="active">📅 希望を出す</button>
+  <button id="tab-shift">📋 シフトを見る</button>
+</nav>
+<main id="main"><p class="center">読み込み中...</p></main>
+<div class="bar hidden" id="bar">
+  <div class="status" id="bar-status"></div>
+  <button class="btn btn-primary" id="submit-btn">提出する</button>
+</div>
+<div id="sheet-root"></div>
+<script type="module" src="wish.js"></script>
+</body>
+</html>
