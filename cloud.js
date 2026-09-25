@@ -17,7 +17,7 @@ import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   doc, collection, onSnapshot, writeBatch
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
-import { firebaseConfig, LOGIN_EMAIL } from "./firebase-config.js";
+import { firebaseConfig } from "./firebase-config.js";
 
 const MONTH_FIELDS = ["wishes", "shifts", "operating", "periodRules"];
 
@@ -51,14 +51,14 @@ loginForm.addEventListener("submit", async e => {
   loginError.textContent = "";
   loginBtn.disabled = true;
   try {
-    await signInWithEmailAndPassword(auth, LOGIN_EMAIL, $("login-password").value);
+    await signInWithEmailAndPassword(auth, $("login-email").value.trim(), $("login-password").value);
     $("login-password").value = "";
   } catch (err) {
     const code = err && err.code || "";
     loginError.textContent =
       code === "auth/network-request-failed" ? "インターネットにつながっていません。" :
       code === "auth/too-many-requests" ? "失敗が続いたため一時的にロックされています。しばらく待ってください。" :
-      "パスワードが違います。";
+      "メールアドレスかパスワードが違います。";
   } finally {
     loginBtn.disabled = false;
   }
@@ -95,7 +95,7 @@ function onReadError(err) {
 onAuthStateChanged(auth, user => {
   unsubs.forEach(u => u()); unsubs = [];
   if (!user) {
-    loginLead.textContent = "パスワードを入力してください。";
+    loginLead.textContent = "スタッフ共通のメールアドレスとパスワードを入力してください。";
     loginFields.classList.remove("hidden");
     loginScreen.classList.remove("hidden");
     return;

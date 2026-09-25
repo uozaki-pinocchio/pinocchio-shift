@@ -2,6 +2,8 @@ rules_version = '2';
 // Firebase のセキュリティルール。
 // 共通アカウントでログインしている人だけが、データを読み書きできる。
 // Firebase 管理画面の「Firestore Database」→「ルール」にこの中身を貼り付けて「公開」する。
+// 貼り付けるときに、下の「ここに…」を実際のメールアドレスに書き換える。
+// （アドレスを公開しないため、このファイルには書かないでおく）
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} {
