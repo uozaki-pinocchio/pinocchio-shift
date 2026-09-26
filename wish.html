@@ -82,5 +82,11 @@
 </div>
 <div id="sheet-root"></div>
 <script type="module" src="wish.js"></script>
+<script>
+// 電波がなくても開けるように＆いつも最新版を使うように、控え係を登録
+if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("service-worker.js").catch(e=>console.warn(e)));
+window.UPDATE_CHECK_FILES=["wish.html","wish.js"];
+</script>
+<script src="update-check.js"></script>
 </body>
 </html>
