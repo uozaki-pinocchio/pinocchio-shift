@@ -1,8 +1,10 @@
 // Firebase とのやりとり（ログイン・データの保存と読み込み）を担当するファイル。
-// 画面側（index.html）とは次の3つだけでつながっている：
-//   window.cloudSave(state)  … 画面側が「保存して」と頼む
-//   window.onCloudData(state) … こちらから「最新データが届いた」と知らせる
-//   window.cloudLogout()      … ログアウト
+// 画面側（index.html）とは次のものでつながっている：
+//   window.cloudSave(state, {stale}) … 画面側が「保存して」と頼む（送った文書の数を返す）
+//   window.onCloudData(state)        … こちらから「最新データが届いた」と知らせる
+//   window.cloudMarkApplied(state)   … 画面側が「届いたデータを画面に反映した」と知らせる
+//   window.cloudSyncPortals()        … スタッフ用ページの内容を、今の画面のデータに合わせる
+//   window.cloudLogout()             … ログアウト
 //
 // 保存の形（Firestore）：
 //   appData/staff        … { staffList }
@@ -10,6 +12,11 @@
 //   portals/{合言葉}     … スタッフ用ページに見せる本人の分だけの情報（管理者が書き出す）
 //   submissions/{合言葉_年-月} … スタッフが専用リンクから出した希望（管理者の画面が取り込む）
 // 月ごとに分けているのは、1つの入れ物の大きさ上限（約1MB）に年々近づかないようにするため。
+//
+// 保存は「自分が変えた項目だけ」を送る。変えたかどうかは、画面が最後に反映したクラウドの状態（base）と比べて決める。
+// こうすると、他の端末の変更がまだ画面に届いていない間（小窓を開いている間など）に保存しても、
+// 自分が触っていない項目を古い内容で上書きしたり、他の端末が作った月を消したりしない。
+// また、項目ごとに送るので、この版が知らない項目（将来の版が足したもの）も消さずに残る。
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import {
@@ -17,7 +24,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  doc, collection, onSnapshot, writeBatch
+  doc, collection, onSnapshot, writeBatch, deleteField
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
@@ -86,9 +93,11 @@ let unsubs = [];
 let staffData = null;          // appData/staff の中身（届くまで null）
 let monthsData = null;         // { "2026-10": {...}, ... }（届くまで null）
 let submissions = null;        // スタッフから届いた希望の一覧（届くまで null）
-let portalsKnown = null;       // 今クラウドにあるスタッフ用ページの合言葉 → 中身(JSON)
+let portalsKnown = null;       // 今クラウドにあるスタッフ用ページの合言葉 → 中身(比較用の文字列)
+let baseState = null;          // 画面が最後に反映したクラウドの状態（自分が何を変えたかを見分けるのに使う）
 let firstPublished = false;
-const knownJSON = new Map();   // 文書ごとの「今クラウドにある中身」。変わった所だけ送るのに使う
+
+window.cloudMarkApplied = st => { baseState = JSON.parse(JSON.stringify(st)); };
 
 function publish() {
   if (staffData === null || monthsData === null) return;
@@ -133,17 +142,12 @@ onAuthStateChanged(auth, user => {
   setSync("読み込み中...");
   unsubs.push(onSnapshot(staffRef, { includeMetadataChanges: true }, snap => {
     staffData = snap.exists() ? snap.data() : {};
-    knownJSON.set("staff", stable({ staffList: staffData.staffList || [] }));
     updateSyncFromMeta(snap.metadata);
     publish();
   }, onReadError));
   unsubs.push(onSnapshot(monthsCol, { includeMetadataChanges: true }, snap => {
     monthsData = {};
-    for (const [key] of knownJSON) if (key.startsWith("month:")) knownJSON.delete(key);
-    snap.forEach(d => {
-      monthsData[d.id] = d.data();
-      knownJSON.set("month:" + d.id, stable(pickMonth(d.data())));
-    });
+    snap.forEach(d => { monthsData[d.id] = d.data(); });
     updateSyncFromMeta(snap.metadata);
     publish();
   }, onReadError));
@@ -165,12 +169,6 @@ onAuthStateChanged(auth, user => {
 // ---- 保存 ----
 let pending = 0;
 
-function pickMonth(src) {
-  const out = {};
-  for (const f of MONTH_FIELDS) if (src[f] !== undefined) out[f] = src[f];
-  return out;
-}
-
 function updateSyncFromMeta(meta) {
   if (pending > 0 || meta.hasPendingWrites) {
     setSync(navigator.onLine ? "保存中..." : "📴 オフライン（つながったら保存）", "warn");
@@ -183,50 +181,45 @@ function updateSyncFromMeta(meta) {
 window.addEventListener("online", () => setSync(pending ? "保存中..." : "☁️ 保存済み", pending ? "warn" : ""));
 window.addEventListener("offline", () => setSync("📴 オフライン（つながったら保存）", "warn"));
 
-window.cloudSave = state => {
-  if (!auth.currentUser) return;
-  // JSON を通すと、Firestore が受け付けない undefined などが取り除かれる
-  const clean = JSON.parse(JSON.stringify(state)); // （これは比較ではなく、余分な値を落とすため）
-  const batch = writeBatch(db);
-  let changes = 0;
+// 画面のデータを、文書ごとの「この版が扱う項目」に分ける
+function fieldsOf(st) {
+  const out = new Map();
+  if (!st) return out;
+  out.set("staff", { staffList: st.staffList || [] });
+  for (const f of MONTH_FIELDS) {
+    for (const [ym, v] of Object.entries(st[f] || {})) {
+      if (v === undefined) continue;
+      const key = "month:" + ym;
+      if (!out.has(key)) out.set(key, {});
+      out.get(key)[f] = v;
+    }
+  }
+  return out;
+}
+const fieldsOfKey = key => key === "staff" ? ["staffList"] : MONTH_FIELDS;
+const refOf = key => key === "staff" ? staffRef : doc(monthsCol, key.slice(6));
+const remoteOf = key => (key === "staff" ? staffData : monthsData[key.slice(6)]) || {};
+const jsonOf = (obj, f) => f in obj ? stable(obj[f]) : undefined;
 
-  const staffDoc = { staffList: clean.staffList || [] };
-  const staffJSON = stable(staffDoc);
-  if (knownJSON.get("staff") !== staffJSON) {
-    batch.set(staffRef, staffDoc); knownJSON.set("staff", staffJSON); changes++;
+// スタッフ用ページ（本人の分だけ）を、今の画面のデータに合わせる。送った数を返す
+function syncPortals(batch) {
+  if (portalsKnown === null) return 0;
+  const views = window.buildPortalViews();
+  let n = 0;
+  for (const [token, view] of Object.entries(views)) {
+    const json = stable(view);
+    if (portalsKnown.get(token) !== json) {
+      batch.set(doc(portalsCol, token), view); portalsKnown.set(token, json); n++;
+    }
   }
+  // 今のデータにない合言葉（無効にした・作り直した・スタッフを消した）はクラウドからも消す
+  for (const token of [...portalsKnown.keys()]) {
+    if (!(token in views)) { batch.delete(doc(portalsCol, token)); portalsKnown.delete(token); n++; }
+  }
+  return n;
+}
 
-  const months = new Set();
-  for (const f of MONTH_FIELDS) Object.keys(clean[f] || {}).forEach(ym => months.add(ym));
-  for (const ym of months) {
-    const m = {};
-    for (const f of MONTH_FIELDS) if (clean[f] && clean[f][ym] !== undefined) m[f] = clean[f][ym];
-    const json = stable(m);
-    if (knownJSON.get("month:" + ym) !== json) {
-      batch.set(doc(monthsCol, ym), m); knownJSON.set("month:" + ym, json); changes++;
-    }
-  }
-  // 画面側で消された月（全データ削除など）はクラウドからも消す
-  for (const key of [...knownJSON.keys()]) {
-    if (key.startsWith("month:") && !months.has(key.slice(6))) {
-      batch.delete(doc(monthsCol, key.slice(6))); knownJSON.delete(key); changes++;
-    }
-  }
-  // スタッフ用ページ（本人の分だけ）。読み込みが済んでから扱う
-  if (portalsKnown !== null) {
-    const views = window.buildPortalViews();
-    for (const [token, view] of Object.entries(views)) {
-      const json = stable(view);
-      if (portalsKnown.get(token) !== json) {
-        batch.set(doc(portalsCol, token), view); portalsKnown.set(token, json); changes++;
-      }
-    }
-    for (const token of [...portalsKnown.keys()]) {
-      if (!(token in views)) { batch.delete(doc(portalsCol, token)); portalsKnown.delete(token); changes++; }
-    }
-  }
-  if (!changes) return;
-
+function commit(batch) {
   pending++;
   setSync(navigator.onLine ? "保存中..." : "📴 オフライン（つながったら保存）", "warn");
   batch.commit().then(() => {
@@ -238,4 +231,51 @@ window.cloudSave = state => {
     setSync("⚠️ 保存に失敗", "error");
     alert("保存に失敗しました。もう一度操作するか、画面を読み込み直してください。\n" + err.message);
   });
+}
+
+window.cloudSave = (state, opts = {}) => {
+  if (!auth.currentUser || staffData === null || monthsData === null) return 0;
+  // JSON を通すと、Firestore が受け付けない undefined などが取り除かれる
+  const clean = JSON.parse(JSON.stringify(state));
+  const local = fieldsOf(clean), base = fieldsOf(baseState);
+  const batch = writeBatch(db);
+  let written = 0;
+
+  for (const key of new Set([...local.keys(), ...base.keys()])) {
+    const L = local.get(key) || {}, B = base.get(key) || {}, R = remoteOf(key);
+    const data = {}, del = [];
+    for (const f of fieldsOfKey(key)) {
+      const lj = jsonOf(L, f);
+      if (lj === jsonOf(R, f)) continue;                   // もうクラウドと同じ
+      if (baseState && lj === jsonOf(B, f)) continue;      // 自分は変えていない（クラウドの方が新しい）
+      if (lj === undefined) del.push(f); else data[f] = L[f];
+    }
+    if (!Object.keys(data).length && !del.length) continue;
+
+    const rest = Object.keys(R).filter(k => !(k in data) && !del.includes(k));
+    if (!Object.keys(data).length && !rest.length) {
+      batch.delete(refOf(key));                            // 何も残らないなら文書ごと消す
+      if (key !== "staff") delete monthsData[key.slice(6)];
+    } else {
+      const payload = { ...data };
+      for (const f of del) payload[f] = deleteField();
+      batch.set(refOf(key), payload, { mergeFields: Object.keys(payload) });
+      // 返事が届くまでの間に同じ内容を二度送らないよう、手元の「クラウドの状態」も先に進めておく
+      const next = { ...R, ...JSON.parse(JSON.stringify(data)) };
+      for (const f of del) delete next[f];
+      if (key === "staff") staffData = next; else monthsData[key.slice(6)] = next;
+    }
+    written++;
+  }
+  // 画面がまだ古いとき（小窓を開いている間など）は、スタッフ用ページは画面が最新になってから合わせる
+  const portals = opts.stale ? 0 : syncPortals(batch);
+  baseState = clean;
+  if (written || portals) commit(batch);
+  return written;
+};
+
+window.cloudSyncPortals = () => {
+  if (!auth.currentUser || staffData === null || monthsData === null) return;
+  const batch = writeBatch(db);
+  if (syncPortals(batch)) commit(batch);
 };

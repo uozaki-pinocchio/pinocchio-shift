@@ -457,17 +457,37 @@ function init(){
 }
 // データの読み書きは cloud.js（Firebase）が担当する。
 // saveState() を呼ぶとインターネット上に保存され、他の人の変更は onCloudData() で届く。
-function saveState(){if(window.cloudSave)window.cloudSave(state);}
+function saveState(){
+  if(!window.cloudSave)return;
+  // 送った分の返事には、待たせていた他の端末の変更も一緒に入って届くので、待たせていた分は捨てる
+  // （送っている最中に新しい分が届いていたら、そちらは残す）
+  const before=deferredCloud;
+  if(window.cloudSave(state,{stale:before!==null})>0&&deferredCloud===before)deferredCloud=null;
+}
+// 小窓（確認・入力の画面）を開いている間は、他の端末からの変更の反映を待たせる。
+// 小窓が古いデータを掴んだまま差し替わると、小窓で押した内容が保存されずに消えてしまうため。
+let deferredCloud=null;
+function modalOpen(){const el=document.getElementById("modal-overlay");return el&&!el.classList.contains("hidden");}
+function flushDeferredCloud(){
+  const d=deferredCloud;deferredCloud=null;
+  if(d)onCloudData(d);
+}
 let appStarted=false;
 function ensureStateShape(){for(const k of["wishes","shifts","operating","periodRules","published","wishSync"])if(!state[k])state[k]={};if(!state.staffList)state.staffList=[];}
 const stableJSON=v=>JSON.stringify(v,(k,x)=>x&&typeof x==="object"&&!Array.isArray(x)?Object.keys(x).sort().reduce((o,key)=>(o[key]=x[key],o),{}):x);
 function onCloudData(newState){
-  const json=JSON.stringify(newState);
-  if(appStarted&&stableJSON(newState)===stableJSON(state))return;
-  state=JSON.parse(json);ensureStateShape();
-  if(!appStarted){appStarted=true;init();return;}
-  renderStaffList();renderOperatingSection();renderRuleSection();renderWishSection();renderShiftSection();
-  renderTimeline();log("最新の内容を反映しました");
+  if(appStarted&&modalOpen()){deferredCloud=newState;return;}
+  if(appStarted&&stableJSON(newState)===stableJSON(state)){
+    if(window.cloudMarkApplied)window.cloudMarkApplied(newState);
+  }else{
+    state=JSON.parse(JSON.stringify(newState));ensureStateShape();
+    if(window.cloudMarkApplied)window.cloudMarkApplied(state);
+    if(!appStarted){appStarted=true;init();return;}
+    renderStaffList();renderOperatingSection();renderRuleSectionIfClean();renderWishSection();renderShiftSection();
+    renderTimeline();log("最新の内容を反映しました");
+  }
+  // スタッフ用ページを今のデータに合わせる（小窓を開いている間に後回しにした分もここで。違いがあるときだけ送る）
+  if(window.cloudSyncPortals)window.cloudSyncPortals();
 }
 function log(msg){document.getElementById("log-area").textContent=`[${new Date().toLocaleTimeString("ja-JP")}] ${msg}`;}
 function buildSelectors(){
@@ -480,14 +500,24 @@ function buildSelectors(){
     document.getElementById(id).innerHTML=months.map(m=>`<option value="${m}" ${m===(now.getMonth()+1)?"selected":""}>${m}</option>`).join("");
   });
 }
-function updateHeaderPeriod(){
-  const y=+document.getElementById("shift-year")?.value||new Date().getFullYear();
-  const m=+document.getElementById("shift-month")?.value||new Date().getMonth()+1;
-  const lbl=getPeriodLabel(y,m);
-  document.getElementById("header-period-label").textContent=lbl;
-  const wp=document.getElementById("wish-period-label"),sp=document.getElementById("shift-period-label");
-  if(wp)wp.textContent=lbl;if(sp)sp.textContent=lbl;
+// 見出しの期間は「今見ているタブで選んでいる月」に合わせる（月を選ばないタブは今日が入っている期間）
+let currentTab="staff";
+function selectedYM(prefix){
+  const y=+document.getElementById(prefix+"-year")?.value,m=+document.getElementById(prefix+"-month")?.value;
+  return y&&m?{y,m}:null;
 }
+function ymOfDate(dateStr){const[y,m]=ymKeyFromDate(dateStr).split("-").map(Number);return{y,m};}
+function updateHeaderPeriod(){
+  const lbl=ym=>getPeriodLabel(ym.y,ym.m);
+  const today=ymOfDate(formatDate(new Date()));
+  const byTab={wish:selectedYM("wish"),shift:selectedYM("shift"),operating:selectedYM("op"),
+    timeline:ymOfDate(tlCurrentDate||formatDate(new Date()))};
+  document.getElementById("header-period-label").textContent=lbl(byTab[currentTab]||today);
+  const wp=document.getElementById("wish-period-label"),sp=document.getElementById("shift-period-label");
+  if(wp)wp.textContent=lbl(selectedYM("wish")||today);
+  if(sp)sp.textContent=lbl(selectedYM("shift")||today);
+}
+document.addEventListener("change",e=>{if(/-(year|month)$/.test(e.target.id||""))updateHeaderPeriod();});
 
 function bulkSetPattern(pattern){
   const y=+document.getElementById("op-year").value,m=+document.getElementById("op-month").value;
@@ -503,7 +533,7 @@ function bulkSetPattern(pattern){
 
 function renderOperatingSection(){
   const y=+document.getElementById("op-year").value,m=+document.getElementById("op-month").value;
-  const ymKey=getYMKey(y,m);if(!state.operating[ymKey])state.operating[ymKey]={};
+  const ymKey=getYMKey(y,m);
   let html='<div class="op-calendar">';
   getPeriodDates(y,m).forEach(dateStr=>{
     const d=parseDate(dateStr),wday=d.getDay(),op=getOpStatus(ymKey,dateStr),pat=getDayPattern(ymKey,dateStr);
@@ -588,7 +618,12 @@ function showEventModal(dateStr,ymKey,existing){
 }
 function onEvStatusChange(){document.getElementById("ev-detail").style.display=document.getElementById("ev-status").value==="event"?"":"none";}
 
+// 最低人数の欄に入力途中（まだ保存していない）なら、他の端末の変更が届いても作り直さない
+let ruleDirty=false;
+document.addEventListener("input",e=>{if(e.target.closest&&e.target.closest("#rule-content"))ruleDirty=true;});
+function renderRuleSectionIfClean(){if(!ruleDirty)renderRuleSection();}
 function renderRuleSection(){
+  ruleDirty=false;
   const y=+document.getElementById("rule-year").value,m=+document.getElementById("rule-month").value;
   const ymKey=getYMKey(y,m);
   const getRules=pat=>state.periodRules[ymKey]?.[pat]||JSON.parse(JSON.stringify(DEFAULT_RULES[pat]));
@@ -628,7 +663,7 @@ function saveRules(ymKey){
       core:{minTotal:+document.getElementById(`rule-${pat}-core-total`).value,minReg:+document.getElementById(`rule-${pat}-core-reg`).value},
       postPT:{minTotal:+document.getElementById(`rule-${pat}-postPT-total`).value,minReg:+document.getElementById(`rule-${pat}-postPT-reg`).value}};
   });
-  saveState();showMsg("rule-msg","✅ 保存しました","green");
+  ruleDirty=false;saveState();showMsg("rule-msg","✅ 保存しました","green");
 }
 function resetRules(ymKey){if(!confirm("デフォルトに戻しますか？"))return;delete state.periodRules[ymKey];saveState();renderRuleSection();}
 function renderRuleInputs(prefix,rules){
@@ -738,14 +773,13 @@ function editStaff(id){
 function renderWishSection(){
   const y=+document.getElementById("wish-year").value,m=+document.getElementById("wish-month").value;
   updateHeaderPeriod();
-  const ymKey=getYMKey(y,m);if(!state.wishes[ymKey])state.wishes[ymKey]={};
+  const ymKey=getYMKey(y,m);
   const el=document.getElementById("wish-content");
   if(!state.staffList.length){el.innerHTML='<p class="text-sm">スタッフを登録してから入力してください。</p>';return;}
   el.innerHTML=renderWishNotice()+state.staffList.map(s=>renderWishBlock(s,ymKey,getPeriodDates(y,m))).join("");
 }
 function renderWishBlock(s,ymKey,dates){
-  if(!state.wishes[ymKey][s.id])state.wishes[ymKey][s.id]={};
-  const w=state.wishes[ymKey][s.id],isReg=s.type==="regular";
+  const w=state.wishes[ymKey]?.[s.id]||{},isReg=s.type==="regular";
   const cells=dates.map(dateStr=>{
     const d=parseDate(dateStr),wday=d.getDay(),op=getOpStatus(ymKey,dateStr);
     const operating=op.status!=="closed",isEvt=op.status==="event",wish=w[dateStr];
@@ -763,14 +797,15 @@ function renderWishBlock(s,ymKey,dates){
       <span class="day-time">${timeLabel}</span></div>`;
   }).join("");
   const countW=Object.values(w).filter(x=>x.time&&x.time!=="off").length;
-  return`<div class="wish-staff-block" id="wblock-${s.id}">
+  const collapsed=collapsedWish.has(s.id);
+  return`<div class="wish-staff-block${collapsed?" collapsed":""}" id="wblock-${s.id}">
     <div class="staff-wish-header ${s.type}" onclick="toggleWishBlock('${s.id}')">
       <span class="staff-badge ${isReg?"badge-regular":"badge-parttime"}">${isReg?"正規":"バイト"}</span>
       <span style="font-weight:bold;flex:1">${escHtml(s.name)}</span>
       ${state.wishSync[ymKey]?.[s.id]?.at?`<span class="text-sm" title="専用リンクから提出">📩${fmtStamp(state.wishSync[ymKey][s.id].at)}</span>`:""}
       <span class="text-sm">${countW}日登録済</span><span class="toggle-arrow">▼</span>
     </div>
-    <div class="wish-calendar-inner" id="wcal-${s.id}">
+    <div class="wish-calendar-inner" id="wcal-${s.id}"${collapsed?' style="display:none"':""}>
       <div class="wish-bulk-btns">
         <button class="btn btn-sm btn-outline" onclick="wishBulk('${s.id}','${ymKey}','weekday')">平日全選択</button>
         <button class="btn btn-sm btn-outline" onclick="wishBulk('${s.id}','${ymKey}','all')">全稼働日選択</button>
@@ -779,9 +814,11 @@ function renderWishBlock(s,ymKey,dates){
       <div class="wish-calendar">${cells}</div>
     </div></div>`;
 }
+const collapsedWish=new Set(); // 畳んだスタッフの欄（画面を作り直しても畳んだままにする）
 function toggleWishBlock(id){
   const cal=document.getElementById(`wcal-${id}`),blk=document.getElementById(`wblock-${id}`);
   const hide=cal.style.display!=="none";cal.style.display=hide?"none":"";blk.classList.toggle("collapsed",hide);
+  if(hide)collapsedWish.add(id);else collapsedWish.delete(id);
 }
 function wishBulk(staffId,ymKey,mode){
   const s=state.staffList.find(x=>x.id===staffId);
@@ -941,6 +978,8 @@ function renderShiftSection(){
   });
   html+='<td>−</td></tr></tbody></table></div>';
   tableEl.innerHTML=html;
+  if(selectedShiftCell&&selectedShiftCell.ymKey===ymKey)
+    document.getElementById(`sc_${selectedShiftCell.staffId}_${selectedShiftCell.dateStr}`)?.classList.add("selected");
   infoEl.innerHTML=alertDates.length
     ?`<div class="info-box error">⚠️ 人数不足の日：${alertDates.map(d=>`${parseDate(d).getDate()}日`).join("、")}</div>`
     :`<div class="info-box success">✅ 全日程、最小人数を満たしています。</div>`;
@@ -1014,13 +1053,14 @@ function openShiftEditModal(staffId,dateStr,ymKey){
       </button>
     </div>`;
 
-  showModal(`✏️ シフト変更：${escHtml(s.name)}`,body,
+  showModal(`✏️ シフト変更：${s.name}`,body,
     [{label:"キャンセル",cls:"btn-secondary",action:closeModal}]);
 }
 
 // ===== ★ シフト変更を適用 =====
 function applyShiftEdit(staffId,dateStr,ymKey,timeOrOff){
   const shift=state.shifts[ymKey];if(!shift)return;
+  if(!shift[staffId])shift[staffId]={}; // シフトを作ったあとに追加したスタッフ
   if(timeOrOff==="off"){
     shift[staffId][dateStr]={time:null,isOff:true,manual:true};
   } else {
@@ -1046,11 +1086,12 @@ function showSwapConfirm(a,b,ymKey){
   const cA=shift[a.staffId]?.[a.dateStr]||{isOff:true},cB=shift[b.staffId]?.[b.dateStr]||{isOff:true};
   showModal("🔄 シフト交換確認",`<p style="margin-bottom:12px">以下のシフトを入れ替えますか？</p>
     <div style="background:#f8fafc;padding:10px;border-radius:8px;line-height:2.2">
-      <div>📌 <b>${sA?.name}</b>（${a.dateStr}）：<b>${cA.isOff?"休み":cA.time+"〜出勤"}</b></div>
-      <div>📌 <b>${sB?.name}</b>（${b.dateStr}）：<b>${cB.isOff?"休み":cB.time+"〜出勤"}</b></div>
+      <div>📌 <b>${escHtml(sA?.name)}</b>（${a.dateStr}）：<b>${cA.isOff?"休み":cA.time+"〜出勤"}</b></div>
+      <div>📌 <b>${escHtml(sB?.name)}</b>（${b.dateStr}）：<b>${cB.isOff?"休み":cB.time+"〜出勤"}</b></div>
     </div>`,
     [{label:"交換する",cls:"btn-primary",action:()=>{
       const tmp={...cA};
+      if(!shift[a.staffId])shift[a.staffId]={};if(!shift[b.staffId])shift[b.staffId]={};
       shift[a.staffId][a.dateStr]={...cB,wishOff:cA.wishOff,manual:true};
       shift[b.staffId][b.dateStr]={...tmp,wishOff:cB.wishOff,manual:true};
       saveState();clearShiftSelection();closeModal();renderShiftSection();
@@ -1060,7 +1101,7 @@ function showSwapConfirm(a,b,ymKey){
 
 function renderTimeline(dateStr){
   if(!dateStr)dateStr=tlCurrentDate||formatDate(new Date());
-  tlCurrentDate=dateStr;
+  tlCurrentDate=dateStr;if(currentTab==="timeline")updateHeaderPeriod();
   const ymKey=ymKeyFromDate(dateStr),shift=state.shifts[ymKey],op=getOpStatus(ymKey,dateStr);
   const el=document.getElementById("timeline-content");
   const allOpDates=[];
@@ -1156,6 +1197,7 @@ function switchTab(tab){
   if(tab==="wish")renderWishSection();
   if(tab==="shift")renderShiftSection();
   if(tab==="timeline")renderTimeline(tlCurrentDate||formatDate(new Date()));
+  currentTab=tab;updateHeaderPeriod();
 }
 
 function exportCSV(){
@@ -1302,7 +1344,7 @@ function applyWishSubmissions(subs){
   let changed=false;
   subs.forEach(sub=>{
     const s=state.staffList.find(x=>x.portalToken&&x.portalToken===sub.token);if(!s)return;
-    const ym=sub.ym,[y,m]=ym.split("-").map(Number);if(!y||!m)return;
+    const ym=sub.ym,[y,m]=String(ym).split("-").map(Number);if(!y||!(m>=1&&m<=12)||ym!==getYMKey(y,m))return;
     const prev=state.wishSync[ym]?.[s.id]?.at||0;if(!(sub.at>prev))return;
     const valid=new Set(getPeriodDates(y,m)),w={};
     Object.entries(sub.days||{}).forEach(([d,t])=>{
@@ -1319,7 +1361,7 @@ function applyWishSubmissions(subs){
   });
   return changed;
 }
-function refreshAll(){renderStaffList();renderOperatingSection();renderRuleSection();renderWishSection();renderShiftSection();renderTimeline();}
+function refreshAll(){renderStaffList();renderOperatingSection();renderRuleSectionIfClean();renderWishSection();renderShiftSection();renderTimeline();}
 
 function showModal(title,body,buttons){
   document.getElementById("modal-title").textContent=title;document.getElementById("modal-body").innerHTML=body;
@@ -1328,7 +1370,7 @@ function showModal(title,body,buttons){
   document.getElementById("modal-overlay").classList.remove("hidden");
 }
 function __mb(i){if(currentModalBtns?.[i])currentModalBtns[i].action();}
-function closeModal(){document.getElementById("modal-overlay").classList.add("hidden");currentModalBtns=null;}
+function closeModal(){document.getElementById("modal-overlay").classList.add("hidden");currentModalBtns=null;flushDeferredCloud();}
 function closeModalOnOverlay(e){if(e.target===document.getElementById("modal-overlay"))closeModal();}
 
 </script>

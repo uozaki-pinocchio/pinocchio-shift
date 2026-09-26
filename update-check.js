@@ -3,7 +3,7 @@
 // 使い方：このファイルを読み込む前に window.UPDATE_CHECK_FILES に見張るファイルを入れておく。
 (function () {
   var files = window.UPDATE_CHECK_FILES || [];
-  var base = null, shown = false, busy = false;
+  var base = null, shown = false, busy = false, last = 0;
 
   function snapshot() {
     return Promise.all(files.map(function (f) {
@@ -30,7 +30,8 @@
 
   function check() {
     if (busy || shown || !files.length || !navigator.onLine) return;
-    busy = true;
+    if (base !== null && Date.now() - last < 60 * 1000) return; // 確かめるのは1分に1回まで
+    busy = true; last = Date.now();
     snapshot().then(function (now) {
       if (base === null) base = now;
       else if (now !== base) showBanner();

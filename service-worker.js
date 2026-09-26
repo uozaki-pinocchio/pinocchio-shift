@@ -5,7 +5,7 @@
 //   このアプリのファイルは毎回「変わっていないか」を確認させて、古い版をつかまないようにしている）
 // （シフトのデータそのものは Firebase が別に端末へ控えているので、ここでは扱わない）
 
-const CACHE = "pinocchio-shift-v3";
+const CACHE = "pinocchio-shift-v4";
 const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/";
 const PRECACHE = [
   "./", "./index.html", "./cloud.js", "./firebase-config.js", "./manifest.json",
@@ -14,7 +14,10 @@ const PRECACHE = [
 ];
 
 self.addEventListener("install", event => {
-  event.waitUntil(caches.open(CACHE).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
+  // 控えを作るときも、ブラウザの「10分使い回し」を通さずに最新版を取りに行く
+  event.waitUntil(caches.open(CACHE)
+    .then(c => c.addAll(PRECACHE.map(u => new Request(u, { cache: "reload" }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", event => {
