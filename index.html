@@ -457,11 +457,21 @@ function init(){
 }
 // データの読み書きは cloud.js（Firebase）が担当する。
 // saveState() を呼ぶとインターネット上に保存され、他の人の変更は onCloudData() で届く。
-function saveState(){if(window.cloudSave)window.cloudSave(state);}
+function saveState(){deferredCloud=null;if(window.cloudSave)window.cloudSave(state);}
+// 小窓（確認・入力の画面）を開いている間は、他の端末からの変更の反映を待たせる。
+// 小窓が古いデータを掴んだまま差し替わると、小窓で押した内容が保存されずに消えてしまうため。
+// 保存したら、それより前に待たせていた分は捨てる（保存のあとに届く分は、自分の保存も含んだ最新の状態）
+let deferredCloud=null;
+function modalOpen(){const el=document.getElementById("modal-overlay");return el&&!el.classList.contains("hidden");}
+function flushDeferredCloud(){
+  const d=deferredCloud;deferredCloud=null;
+  if(d)onCloudData(d);
+}
 let appStarted=false;
 function ensureStateShape(){for(const k of["wishes","shifts","operating","periodRules","published","wishSync"])if(!state[k])state[k]={};if(!state.staffList)state.staffList=[];}
 const stableJSON=v=>JSON.stringify(v,(k,x)=>x&&typeof x==="object"&&!Array.isArray(x)?Object.keys(x).sort().reduce((o,key)=>(o[key]=x[key],o),{}):x);
 function onCloudData(newState){
+  if(appStarted&&modalOpen()){deferredCloud=newState;return;}
   const json=JSON.stringify(newState);
   if(appStarted&&stableJSON(newState)===stableJSON(state))return;
   state=JSON.parse(json);ensureStateShape();
@@ -480,14 +490,24 @@ function buildSelectors(){
     document.getElementById(id).innerHTML=months.map(m=>`<option value="${m}" ${m===(now.getMonth()+1)?"selected":""}>${m}</option>`).join("");
   });
 }
-function updateHeaderPeriod(){
-  const y=+document.getElementById("shift-year")?.value||new Date().getFullYear();
-  const m=+document.getElementById("shift-month")?.value||new Date().getMonth()+1;
-  const lbl=getPeriodLabel(y,m);
-  document.getElementById("header-period-label").textContent=lbl;
-  const wp=document.getElementById("wish-period-label"),sp=document.getElementById("shift-period-label");
-  if(wp)wp.textContent=lbl;if(sp)sp.textContent=lbl;
+// 見出しの期間は「今見ているタブで選んでいる月」に合わせる（月を選ばないタブは今日が入っている期間）
+let currentTab="staff";
+function selectedYM(prefix){
+  const y=+document.getElementById(prefix+"-year")?.value,m=+document.getElementById(prefix+"-month")?.value;
+  return y&&m?{y,m}:null;
 }
+function ymOfDate(dateStr){const[y,m]=ymKeyFromDate(dateStr).split("-").map(Number);return{y,m};}
+function updateHeaderPeriod(){
+  const lbl=ym=>getPeriodLabel(ym.y,ym.m);
+  const today=ymOfDate(formatDate(new Date()));
+  const byTab={wish:selectedYM("wish"),shift:selectedYM("shift"),operating:selectedYM("op"),
+    timeline:ymOfDate(tlCurrentDate||formatDate(new Date()))};
+  document.getElementById("header-period-label").textContent=lbl(byTab[currentTab]||today);
+  const wp=document.getElementById("wish-period-label"),sp=document.getElementById("shift-period-label");
+  if(wp)wp.textContent=lbl(selectedYM("wish")||today);
+  if(sp)sp.textContent=lbl(selectedYM("shift")||today);
+}
+document.addEventListener("change",e=>{if(/-(year|month)$/.test(e.target.id||""))updateHeaderPeriod();});
 
 function bulkSetPattern(pattern){
   const y=+document.getElementById("op-year").value,m=+document.getElementById("op-month").value;
@@ -1060,7 +1080,7 @@ function showSwapConfirm(a,b,ymKey){
 
 function renderTimeline(dateStr){
   if(!dateStr)dateStr=tlCurrentDate||formatDate(new Date());
-  tlCurrentDate=dateStr;
+  tlCurrentDate=dateStr;if(currentTab==="timeline")updateHeaderPeriod();
   const ymKey=ymKeyFromDate(dateStr),shift=state.shifts[ymKey],op=getOpStatus(ymKey,dateStr);
   const el=document.getElementById("timeline-content");
   const allOpDates=[];
@@ -1156,6 +1176,7 @@ function switchTab(tab){
   if(tab==="wish")renderWishSection();
   if(tab==="shift")renderShiftSection();
   if(tab==="timeline")renderTimeline(tlCurrentDate||formatDate(new Date()));
+  currentTab=tab;updateHeaderPeriod();
 }
 
 function exportCSV(){
@@ -1328,7 +1349,7 @@ function showModal(title,body,buttons){
   document.getElementById("modal-overlay").classList.remove("hidden");
 }
 function __mb(i){if(currentModalBtns?.[i])currentModalBtns[i].action();}
-function closeModal(){document.getElementById("modal-overlay").classList.add("hidden");currentModalBtns=null;}
+function closeModal(){document.getElementById("modal-overlay").classList.add("hidden");currentModalBtns=null;flushDeferredCloud();}
 function closeModalOnOverlay(e){if(e.target===document.getElementById("modal-overlay"))closeModal();}
 
 </script>
