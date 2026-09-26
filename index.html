@@ -73,6 +73,9 @@
   .staff-item.parttime{background:var(--yellow-bg);border-color:var(--yellow-mid)}
   .staff-name{font-weight:bold;font-size:.93rem;flex:1}
   .staff-info{font-size:.74rem;color:#4b5563}
+  .staff-actions{display:flex;gap:6px;flex:none}
+  .wish-notice{background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;font-size:.82rem;margin-bottom:10px}
+  .wish-notice div{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:3px 0}
   .staff-badge{font-size:.7rem;padding:2px 7px;border-radius:12px;font-weight:bold}
   .badge-regular{background:var(--blue-dark);color:#fff}
   .badge-parttime{background:var(--yellow-dark);color:#fff}
@@ -202,6 +205,9 @@
   @media(max-width:600px){
     #app-header{flex-wrap:wrap;row-gap:4px;padding:10px 12px}
     #app-header h1{flex:1 0 100%;white-space:nowrap;font-size:1.1rem}
+    .staff-item{flex-wrap:wrap}
+    .staff-item>div[style*="flex:1"]{min-width:0}
+    .staff-actions{width:100%;justify-content:flex-end}
     .form-row{flex-direction:column}.btn{padding:7px 10px;font-size:.78rem}
     .wish-day{width:36px;height:44px}.op-day{width:48px;height:62px}
   }
@@ -691,9 +697,11 @@ function renderStaffList(){
         <div class="staff-info">月${s.minDays}〜${s.maxDays}日 / 週最大${s.weekMax}日 ／ ${s.times.join(" ")} 〜 ${s.type==="regular"?END_REGULAR:END_PARTTIME}</div>
         ${s.memo?`<div class="staff-info" style="color:#6b7280">💬 ${escHtml(s.memo)}</div>`:""}
       </div>
-      <button class="btn btn-sm btn-outline" onclick="openPortalModal('${s.id}')" title="希望入力用の専用リンク">🔗${s.portalToken?"":"<small>未発行</small>"}</button>
-      <button class="btn btn-sm btn-outline" onclick="editStaff('${s.id}')">✏️</button>
-      <button class="btn btn-sm btn-danger" onclick="deleteStaff('${s.id}')">🗑️</button>
+      <div class="staff-actions">
+        <button class="btn btn-sm btn-outline" onclick="openPortalModal('${s.id}')" title="希望入力用の専用リンク">🔗${s.portalToken?"":"<small>未発行</small>"}</button>
+        <button class="btn btn-sm btn-outline" onclick="editStaff('${s.id}')">✏️</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteStaff('${s.id}')">🗑️</button>
+      </div>
     </div>`).join("");
 }
 function moveStaff(idx,dir){
@@ -733,7 +741,7 @@ function renderWishSection(){
   const ymKey=getYMKey(y,m);if(!state.wishes[ymKey])state.wishes[ymKey]={};
   const el=document.getElementById("wish-content");
   if(!state.staffList.length){el.innerHTML='<p class="text-sm">スタッフを登録してから入力してください。</p>';return;}
-  el.innerHTML=state.staffList.map(s=>renderWishBlock(s,ymKey,getPeriodDates(y,m))).join("");
+  el.innerHTML=renderWishNotice()+state.staffList.map(s=>renderWishBlock(s,ymKey,getPeriodDates(y,m))).join("");
 }
 function renderWishBlock(s,ymKey,dates){
   if(!state.wishes[ymKey][s.id])state.wishes[ymKey][s.id]={};
@@ -759,6 +767,7 @@ function renderWishBlock(s,ymKey,dates){
     <div class="staff-wish-header ${s.type}" onclick="toggleWishBlock('${s.id}')">
       <span class="staff-badge ${isReg?"badge-regular":"badge-parttime"}">${isReg?"正規":"バイト"}</span>
       <span style="font-weight:bold;flex:1">${escHtml(s.name)}</span>
+      ${state.wishSync[ymKey]?.[s.id]?.at?`<span class="text-sm" title="専用リンクから提出">📩${fmtStamp(state.wishSync[ymKey][s.id].at)}</span>`:""}
       <span class="text-sm">${countW}日登録済</span><span class="toggle-arrow">▼</span>
     </div>
     <div class="wish-calendar-inner" id="wcal-${s.id}">
@@ -1254,6 +1263,20 @@ function setPublished(ymKey,on){
   saveState();renderShiftSection();log(on?"シフトを公開しました":"シフトを非公開にしました");
 }
 function ackWishChanges(ymKey){Object.values(state.wishSync[ymKey]||{}).forEach(w=>{delete w.afterShift;});saveState();renderShiftSection();}
+const fmtStamp=ms=>{const t=new Date(ms);return`${t.getMonth()+1}/${t.getDate()} ${t.getHours()}:${p2(t.getMinutes())}`;};
+// 「出勤希望」タブの上に、専用リンクから最近（30日以内）届いた希望を出す
+function renderWishNotice(){
+  const since=Date.now()-30*864e5,items=[];
+  Object.entries(state.wishSync).forEach(([ym,byStaff])=>Object.entries(byStaff||{}).forEach(([id,w])=>{
+    const s=state.staffList.find(x=>x.id===id);if(s&&w.at>since)items.push({ym,name:s.name,at:w.at});
+  }));
+  if(!items.length)return"";
+  items.sort((a,b)=>b.at-a.at);
+  return`<div class="wish-notice"><b>📩 専用リンクから届いた希望</b>${items.slice(0,8).map(it=>{const[y,m]=it.ym.split("-").map(Number);
+    return`<div><span>${escHtml(it.name)}さん → <b>${m}月分</b>（${fmtStamp(it.at)} 提出）</span>
+      <button class="btn btn-sm btn-outline" onclick="openWishMonth(${y},${m})">${m}月分を開く</button></div>`;}).join("")}</div>`;
+}
+function openWishMonth(y,m){document.getElementById("wish-year").value=y;document.getElementById("wish-month").value=m;renderWishSection();}
 // スタッフ用ページに見せる内容（本人の分だけ）。cloud.js が Firebase に書き出す
 function buildPortalViews(){
   const views={},today=formatDate(new Date()),base=parseDate(ymKeyFromDate(today)+"-01");
