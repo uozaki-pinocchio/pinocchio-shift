@@ -1336,6 +1336,8 @@ function closeModalOnOverlay(e){if(e.target===document.getElementById("modal-ove
 <script>
 // ホーム画面に追加したとき、電波がなくても開けるようにする「控え係」を登録
 if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("service-worker.js").catch(e=>console.warn(e)));
+window.UPDATE_CHECK_FILES=["index.html","cloud.js"];
 </script>
+<script src="update-check.js"></script>
 </body>
 </html>
