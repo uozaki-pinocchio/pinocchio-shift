@@ -74,6 +74,11 @@
   .staff-name{font-weight:bold;font-size:.93rem;flex:1}
   .staff-info{font-size:.74rem;color:#4b5563}
   .staff-actions{display:flex;gap:6px;flex:none}
+  .note-mark{position:absolute;top:0;right:1px;font-size:.6rem;line-height:1}
+  .wish-day{position:relative}
+  .early-end{display:block;font-size:.58rem;color:#b45309;font-weight:bold;line-height:1.1}
+  .early-box{display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:.85rem}
+  .early-box select{padding:6px;font-size:.9rem}
   .time-chip{display:inline-flex;align-items:center;gap:4px;background:#f1f5f9;border:1px solid var(--border);border-radius:999px;padding:2px 4px 2px 12px;font-weight:bold}
   .wish-notice{background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;font-size:.82rem;margin-bottom:10px}
   .wish-notice div{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:3px 0}
@@ -411,6 +416,21 @@ const DAYS_JP=["日","月","火","水","木","金","土"];
 const END_REGULAR="19:00",END_PARTTIME="17:30";
 // 来る時間の候補。「⚙️ 設定」で足し引きでき、何も設定していなければ上の初期値を使う
 const byTime=(a,b)=>toMin(a)-toMin(b);
+// その日のふだんの帰る時間（イベントの日はイベントの終わり）
+function defaultEnd(s,op){return op.status==="event"?(op.endTime||"17:00"):(s.type==="regular"?END_REGULAR:END_PARTTIME);}
+// 早上がりを入れていればその時刻、なければふだんの帰る時間（入れた時刻がおかしいときもふだんの時刻）
+function cellEnd(s,op,cell){
+  const def=defaultEnd(s,op),e=cell&&cell.end;
+  return e&&cell.time&&toMin(e)>toMin(cell.time)&&toMin(e)<toMin(def)?e:def;
+}
+function isEarly(s,op,cell){return cellEnd(s,op,cell)!==defaultEnd(s,op);}
+// 早上がりで選べる時刻：来てから30分後〜ふだんの帰る30分前まで、30分きざみ
+function earlyEndOptions(start,end){
+  const out=[],st=toMin(start),en=toMin(end);
+  for(let m=Math.ceil((st+30)/30)*30;m<=en-30;m+=30)out.push(`${Math.floor(m/60)}:${p2(m%60)}`);
+  return out;
+}
+const wishNote=(ymKey,staffId,dateStr)=>state.wishes[ymKey]?.[staffId]?.[dateStr]?.note||"";
 function timeOptions(type){
   const t=state.timeOptions?.[type];
   return(Array.isArray(t)&&t.length?[...t]:[...(type==="regular"?REGULAR_TIMES:PARTTIME_TIMES)]).sort(byTime);
@@ -833,10 +853,10 @@ function renderWishBlock(s,ymKey,dates){
     const timeLabel=!operating?"休":(wish?(wish.time==="off"?"×":(wish.time||"")):"");
     const wdayCls=wday===0?"day-wday-sun":wday===6?"day-wday-sat":"";
     return`<div class="${cls}" onclick="${operating?`openWishModal('${s.id}','${dateStr}','${ymKey}')`:""}"
-      title="${dateStr}（${DAYS_JP[wday]}）${timeLabel?" → "+timeLabel:""}">
+      title="${dateStr}（${DAYS_JP[wday]}）${timeLabel?" → "+timeLabel:""}${wish?.note?" 💬"+escHtml(wish.note):""}">
       <span class="day-wday ${wdayCls}">${DAYS_JP[wday]}</span>
       <span class="day-num">${d.getDate()}</span>
-      <span class="day-time">${timeLabel}</span></div>`;
+      <span class="day-time">${timeLabel}</span>${wish?.note?'<span class="note-mark">💬</span>':""}</div>`;
   }).join("");
   const countW=Object.values(w).filter(x=>x.time&&x.time!=="off").length;
   const collapsed=collapsedWish.has(s.id);
@@ -868,11 +888,13 @@ function wishBulk(staffId,ymKey,mode){
   if(!state.wishes[ymKey])state.wishes[ymKey]={};
   if(!state.wishes[ymKey][staffId])state.wishes[ymKey][staffId]={};
   const w=state.wishes[ymKey][staffId],dt=s.times[0]||(s.type==="regular"?"8:00":"9:30");
-  if(mode==="clear"){state.wishes[ymKey][staffId]={};}
+  if(mode==="clear"){ // 本人のメモは残す
+    Object.keys(w).forEach(d=>{if(w[d]?.note)w[d]={note:w[d].note};else delete w[d];});
+  }
   else getPeriodDates(y,m).forEach(dateStr=>{
     const op=getOpStatus(ymKey,dateStr);if(op.status==="closed")return;
     const wday=wdayOf(dateStr);if(mode==="weekday"&&(wday===0||wday===6))return;
-    w[dateStr]={time:dt};
+    w[dateStr]={time:dt,...(w[dateStr]?.note?{note:w[dateStr].note}:{})};
   });
   saveState();renderWishSection();
 }
@@ -883,9 +905,9 @@ function openWishModal(staffId,dateStr,ymKey){
     ?`<button class="modal-time-btn ${cur===(op.startTime||"09:00")?"selected-time":""}" onclick="setWish('${staffId}','${dateStr}','${ymKey}','${op.startTime||"09:00"}')">
         🎪 ${op.startTime||"09:00"}〜${op.endTime||"17:00"}（${escHtml(op.eventName||"イベント")}）</button>`
     :s.times.map(t=>`<button class="modal-time-btn ${cur===t?"selected-time":""}" onclick="setWish('${staffId}','${dateStr}','${ymKey}','${t}')">${t}〜${s.type==="regular"?END_REGULAR:END_PARTTIME}</button>`).join("");
-  const d=parseDate(dateStr);
+  const d=parseDate(dateStr),note=wishNote(ymKey,staffId,dateStr);
   showModal(`${s.name}｜${dateStr}（${DAYS_JP[d.getDay()]}）`,
-    `<div class="modal-time-list">${timeBtns}
+    `${note?`<div class="info-box">💬 本人のメモ：${escHtml(note)}</div>`:""}<div class="modal-time-list">${timeBtns}
       <button class="modal-time-btn off-btn ${cur==="off"?"selected-time":""}" onclick="setWish('${staffId}','${dateStr}','${ymKey}','off')">❌ この日は出勤しない</button>
       <button class="modal-time-btn" onclick="setWish('${staffId}','${dateStr}','${ymKey}',null)">（登録なし）</button></div>`,
     [{label:"キャンセル",cls:"btn-secondary",action:closeModal}]);
@@ -893,8 +915,9 @@ function openWishModal(staffId,dateStr,ymKey){
 function setWish(staffId,dateStr,ymKey,time){
   if(!state.wishes[ymKey])state.wishes[ymKey]={};
   if(!state.wishes[ymKey][staffId])state.wishes[ymKey][staffId]={};
-  if(time===null)delete state.wishes[ymKey][staffId][dateStr];
-  else state.wishes[ymKey][staffId][dateStr]={time};
+  const note=state.wishes[ymKey][staffId][dateStr]?.note;
+  if(time===null){if(note)state.wishes[ymKey][staffId][dateStr]={note};else delete state.wishes[ymKey][staffId][dateStr];}
+  else state.wishes[ymKey][staffId][dateStr]={time,...(note?{note}:{})};
   saveState();closeModal();renderWishSection();
 }
 
@@ -995,12 +1018,13 @@ function renderShiftSection(){
       const op=getOpStatus(ymKey,dateStr),isEvt=op.status==="event";
       const isLocked=cell.wishOff;
       const cellCls=(working?(isEvt?"working-event":(isReg?"working-regular":"working-parttime")):"off")+(isLocked?" locked-off":"");
-      const endT=isEvt?(op.endTime||"17:00"):(isReg?END_REGULAR:END_PARTTIME);
+      const endT=cellEnd(s,op,cell),early=working&&isEarly(s,op,cell),note=wishNote(ymKey,s.id,dateStr);
       html+=`<td class="shift-cell dcol-${ci} ${cellCls}" id="sc_${s.id}_${dateStr}"
         onclick="onShiftCellClick('${s.id}','${dateStr}','${ymKey}')"
-        title="${escHtml(s.name)} ${dateStr}: ${isLocked?"本人が出勤不可と申告（編集ロック）":(working?cell.time+"〜"+endT:"休み")}${cell.manual?" ✏️手動編集":""}"
+        title="${escHtml(s.name)} ${dateStr}: ${isLocked?"本人が出勤不可と申告（編集ロック）":(working?cell.time+"〜"+endT+(early?"（早上がり）":""):"休み")}${cell.manual?" ✏️手動編集":""}${note?" 💬"+escHtml(note):""}"
         style="position:relative">
-        ${isLocked?'🔒':(working?`<span style="font-size:.75rem">${cell.time}</span>`:"−")}
+        ${isLocked?'🔒':(working?`<span style="font-size:.75rem">${cell.time}</span>${early?`<span class="early-end">〜${endT}</span>`:""}`:"−")}
+        ${note?'<span class="note-mark">💬</span>':""}
         ${cell.manual?'<span style="position:absolute;bottom:1px;right:1px;font-size:.6rem">✏️</span>':""}</td>`;
     });
     html+=`<td class="${count>=s.minDays?"count-ok":"count-ng"}">${count}日</td></tr>`;
@@ -1065,7 +1089,8 @@ function openShiftEditModal(staffId,dateStr,ymKey){
   const d=parseDate(dateStr);
   const wdayStr=DAYS_JP[d.getDay()];
   const curTime=cell.isOff?null:cell.time;
-  const endT=isEvt?(op.endTime||"17:00"):(isReg?END_REGULAR:END_PARTTIME);
+  const defEnd=defaultEnd(s,op),endT=cellEnd(s,op,cell),early=!!curTime&&isEarly(s,op,cell);
+  const note=wishNote(ymKey,staffId,dateStr);
 
   // 選択可能な時刻リスト
   let times;
@@ -1079,14 +1104,18 @@ function openShiftEditModal(staffId,dateStr,ymKey){
   const timeBtns=times.map(t=>`
     <button class="modal-time-btn ${curTime===t?"selected-time current":""}"
       onclick="applyShiftEdit('${staffId}','${dateStr}','${ymKey}','${t}')">
-      ${curTime===t?"✅ ":""}${t} 〜 ${endT}${curTime===t?" （現在）":""}
+      ${curTime===t?"✅ ":""}${t} 〜 ${curTime===t?endT:defEnd}${curTime===t?" （現在）":""}
     </button>`).join("");
 
   const body=`
     <div style="font-size:.82rem;color:#6b7280;margin-bottom:12px">
       ${escHtml(s.name)} / ${dateStr}（${wdayStr}）<br>
-      現在：<b>${curTime?curTime+"〜"+endT:"休み"}</b>
+      現在：<b>${curTime?curTime+"〜"+endT+(early?"（早上がり）":""):"休み"}</b>
     </div>
+    ${note?`<div class="info-box">💬 本人のメモ：${escHtml(note)}</div>`:""}
+    ${curTime?`<div class="early-box"><label for="edit-end">帰る時間</label>
+      <select id="edit-end"><option value="">通常（${defEnd}）</option>${earlyEndOptions(curTime,defEnd).map(t=>`<option value="${t}" ${early&&endT===t?"selected":""}>早上がり ${t}</option>`).join("")}</select>
+      <button class="btn btn-sm btn-primary" onclick="applyShiftEnd('${staffId}','${dateStr}','${ymKey}')">帰る時間を変える</button></div>`:""}
     <div class="modal-time-list">
       ${timeBtns}
       <hr style="border:none;border-top:1px solid var(--border);margin:4px 0">
@@ -1107,13 +1136,24 @@ function applyShiftEdit(staffId,dateStr,ymKey,timeOrOff){
   if(timeOrOff==="off"){
     shift[staffId][dateStr]={time:null,isOff:true,manual:true};
   } else {
-    shift[staffId][dateStr]={time:timeOrOff,isOff:false,manual:true};
+    // 早上がりを入れていた日は、来る時間を変えても帰る時間はそのまま（来る時間より後のときだけ）
+    const prevEnd=shift[staffId][dateStr]?.end;
+    shift[staffId][dateStr]={time:timeOrOff,isOff:false,manual:true,...(prevEnd&&toMin(prevEnd)>toMin(timeOrOff)?{end:prevEnd}:{})};
   }
   saveState();closeModal();renderShiftSection();
   const s=state.staffList.find(x=>x.id===staffId);
   log(`手動変更: ${s?.name} ${dateStr} → ${timeOrOff==="off"?"休み":timeOrOff}`);
 }
 
+// 早上がり（帰る時間）を変える。「通常」を選ぶと早上がりを取り消す
+function applyShiftEnd(staffId,dateStr,ymKey){
+  const shift=state.shifts[ymKey],cell=shift?.[staffId]?.[dateStr];if(!cell||cell.isOff||!cell.time)return;
+  const s=state.staffList.find(x=>x.id===staffId),v=document.getElementById("edit-end").value;
+  if(v)cell.end=v;else delete cell.end;
+  cell.manual=true;
+  saveState();closeModal();renderShiftSection();
+  log(`${s?.name||""} ${dateStr} の帰る時間：${v?"早上がり "+v:"通常"}`);
+}
 function clearShiftSelection(){
   if(selectedShiftCell){
     document.getElementById(`sc_${selectedShiftCell.staffId}_${selectedShiftCell.dateStr}`)?.classList.remove("selected");
@@ -1176,7 +1216,7 @@ function renderTimeline(dateStr){
     const sm=toMin(slotT);let total=0,reg=0;
     workers.forEach(s=>{
       const c=shift[s.id][dateStr],start=toMin(c.time);
-      const end=isEvt?toMin(op.endTime||"17:00"):toMin(s.type==="regular"?END_REGULAR:END_PARTTIME);
+      const end=toMin(cellEnd(s,op,c));
       if(sm>=start&&sm<end){total++;if(s.type==="regular")reg++;}
     });
     let needTotal,needReg;
@@ -1200,11 +1240,11 @@ function renderTimeline(dateStr){
     const isReg=s.type==="regular",cell=shift[s.id]?.[dateStr];
     const working=cell&&!cell.isOff&&cell.time;
     const startMin=working?toMin(cell.time):-1;
-    const endT=working?(isEvt?(op.endTime||"17:00"):(isReg?END_REGULAR:END_PARTTIME)):null;
+    const endT=working?cellEnd(s,op,cell):null;
     const endMin=working?toMin(endT):-1;
     html+=`<tr><td class="tl-name-cell ${isReg?"reg":"pt"}">
       <span class="staff-badge ${isReg?"badge-regular":"badge-parttime"}" style="font-size:.62rem">${isReg?"正規":"バイト"}</span>
-      ${escHtml(s.name)}<br><span style="font-size:.62rem;color:#6b7280">${working?cell.time+"〜":""}</span></td>`;
+      ${escHtml(s.name)}<br><span style="font-size:.62rem;color:#6b7280">${working?cell.time+"〜"+(isEarly(s,op,cell)?endT+"（早上がり）":""):""}</span></td>`;
     slots.forEach(slotT=>{
       const sm=toMin(slotT),inShift=working&&sm>=startMin&&sm<endMin;
       html+=`<td class="tl-slot" style="background:${inShift?(isReg?"var(--blue-cell)":"var(--yellow-cell)"):"#f9fafb"}" title="${escHtml(s.name)} ${slotT}${inShift?" 在席":""}"></td>`;
@@ -1250,7 +1290,7 @@ function exportCSV(){
   let csv="スタッフ名,区分,"+dates.map(d=>{const dt=parseDate(d);return`${dt.getMonth()+1}/${dt.getDate()}(${DAYS_JP[dt.getDay()]})`;}).join(",")+",出勤合計\n";
   state.staffList.forEach(s=>{
     let cnt=0;
-    const row=[`"${s.name}"`,s.type==="regular"?"正規":"アルバイト",...dates.map(d=>{const c=shift[s.id]?.[d];if(!c||c.isOff)return"休";cnt++;return c.time;}),cnt];
+    const row=[`"${s.name}"`,s.type==="regular"?"正規":"アルバイト",...dates.map(d=>{const c=shift[s.id]?.[d];if(!c||c.isOff)return"休";cnt++;const op=getOpStatus(ymKey,d);return isEarly(s,op,c)?`${c.time}-${cellEnd(s,op,c)}`:c.time;}),cnt];
     csv+=row.join(",")+"\n";
   });
   const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
@@ -1374,10 +1414,10 @@ function buildPortalViews(){
         const ymKey=getYMKey(y,m),dates=getPeriodDates(y,m),w=state.wishes[ymKey]?.[s.id]||{},sh=state.shifts[ymKey];
         const days=dates.map(d=>{const op=getOpStatus(ymKey,d);const o={d,st:op.status};
           if(op.status==="event"){o.ev=op.eventName||"イベント";o.start=op.startTime||"09:00";o.end=op.endTime||"17:00";}return o;});
-        const wishes={};Object.entries(w).forEach(([d,v])=>{if(v?.time)wishes[d]=v.time;});
+        const wishes={},notes={};Object.entries(w).forEach(([d,v])=>{if(v?.time)wishes[d]=v.time;if(v?.note)notes[d]=v.note;});
         let shift=null;
-        if(sh&&state.published[ymKey]){shift={};dates.forEach(d=>{const c=sh[s.id]?.[d];if(c&&!c.isOff&&c.time&&isOperating(ymKey,d)){const op=getOpStatus(ymKey,d);shift[d]={time:c.time,end:op.status==="event"?(op.endTime||"17:00"):end};}});}
-        return{ym:ymKey,label:`${m}月分`,range:getPeriodLabel(y,m),days,wishes,wishAt:state.wishSync[ymKey]?.[s.id]?.at||0,shift};
+        if(sh&&state.published[ymKey]){shift={};dates.forEach(d=>{const c=sh[s.id]?.[d];if(c&&!c.isOff&&c.time&&isOperating(ymKey,d)){const op=getOpStatus(ymKey,d);shift[d]={time:c.time,end:cellEnd(s,op,c),...(isEarly(s,op,c)?{early:true}:{})};}});}
+        return{ym:ymKey,label:`${m}月分`,range:getPeriodLabel(y,m),days,wishes,...(Object.keys(notes).length?{notes}:{}),wishAt:state.wishSync[ymKey]?.[s.id]?.at||0,shift};
       })};
   });
   return views;
@@ -1390,11 +1430,15 @@ function applyWishSubmissions(subs){
     const ym=sub.ym,[y,m]=String(ym).split("-").map(Number);if(!y||!(m>=1&&m<=12)||ym!==getYMKey(y,m))return;
     const prev=state.wishSync[ym]?.[s.id]?.at||0;if(!(sub.at>prev))return;
     const valid=new Set(getPeriodDates(y,m)),w={};
-    Object.entries(sub.days||{}).forEach(([d,t])=>{
-      if(!valid.has(d)||typeof t!=="string")return;
+    // 1日分は「時刻」だけの文字列か、メモつきの {time, note}（メモだけのときは {note}）
+    Object.entries(sub.days||{}).forEach(([d,v])=>{
+      if(!valid.has(d))return;
       const op=getOpStatus(ym,d);if(op.status==="closed")return;
-      const ok=t==="off"||(op.status==="event"?t===(op.startTime||"09:00"):s.times.includes(t));
-      if(ok)w[d]={time:t};
+      const t=typeof v==="string"?v:(v&&typeof v.time==="string"?v.time:null);
+      const note=v&&typeof v==="object"&&typeof v.note==="string"?v.note.trim().slice(0,100):"";
+      const ok=!!t&&(t==="off"||(op.status==="event"?t===(op.startTime||"09:00"):s.times.includes(t)));
+      const e={...(ok?{time:t}:{}),...(note?{note}:{})};
+      if(e.time||e.note)w[d]=e;
     });
     if(!state.wishes[ym])state.wishes[ym]={};
     state.wishes[ym][s.id]=w;

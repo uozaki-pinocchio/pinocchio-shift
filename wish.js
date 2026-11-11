@@ -85,11 +85,25 @@ function monthsFor(t) {
   return t === "wish" ? view.months.filter(m => m.ym >= today) : view.months.filter(m => m.shift);
 }
 
+// 1日分の希望は { time, note }（どちらも無いこともある）で扱う。
+// 送るときは、メモが無い日は時刻だけの文字列にする（前からの形のまま）
+const entryOf = v => typeof v === "string" ? { time: v }
+  : v && typeof v === "object" ? { ...(typeof v.time === "string" ? { time: v.time } : {}), ...(typeof v.note === "string" && v.note ? { note: v.note } : {}) }
+  : {};
+function entriesOf(days) {
+  const out = {};
+  for (const [d, v] of Object.entries(days || {})) { const e = entryOf(v); if (e.time || e.note) out[d] = e; }
+  return out;
+}
+
 // 今の希望（未提出の変更 → 自分が出したもの → 管理者の画面にあるもの の順で新しいほう）
 function currentWishes(m) {
   if (drafts[m.ym]) return drafts[m.ym];
   const s = mine[m.ym];
-  return s && s.at > (m.wishAt || 0) ? s.days : m.wishes || {};
+  if (s && s.at > (m.wishAt || 0)) return entriesOf(s.days);
+  const out = entriesOf(m.wishes);
+  for (const [d, n] of Object.entries(m.notes || {})) out[d] = { ...(out[d] || {}), note: n };
+  return out;
 }
 
 function render() {
@@ -115,7 +129,7 @@ function render() {
       <div class="days shift-list">${days.length ? days.map(d => `
         <div class="day"><span class="date ${wdayCls(d.d)}">${fmtDay(d.d)}<small>（${DAYS_JP[parseDate(d.d).getDay()]}）</small></span>
           <span class="info">${d.st === "event" ? "🎪 " + esc(d.ev) : ""}</span>
-          <span class="val">${m.shift[d.d].time}〜${m.shift[d.d].end}</span></div>`).join("")
+          <span class="val">${m.shift[d.d].time}〜${m.shift[d.d].end}${m.shift[d.d].early ? "<small>（早上がり）</small>" : ""}</span></div>`).join("")
         : `<p class="center">この月の出勤日はありません。</p>`}</div>`;
   } else {
     if (!m) { main.innerHTML = `<p class="center">いま希望を出せる月がありません。</p>`; $("bar").classList.add("hidden"); return; }
@@ -125,12 +139,12 @@ function render() {
       <div class="note">日付をタップして、出勤できる時刻か「休み」を選んでください。<br>選び終わったら、下の <b>「提出する」</b> を押してください。あとから何度でも変更できます。</div>
       ${m.shift ? `<div class="note warn">この月のシフトはもう公開されています。希望を変えたときは、念のため管理者にも一声かけてください。</div>` : ""}
       <div class="days">${m.days.map(d => {
-        const v = w[d.d], wd = DAYS_JP[parseDate(d.d).getDay()];
+        const e = w[d.d] || {}, v = e.time, wd = DAYS_JP[parseDate(d.d).getDay()];
         const date = `<span class="date ${wdayCls(d.d)}">${fmtDay(d.d)}<small>（${wd}）</small></span>`;
         if (d.st === "closed") return `<div class="day closed">${date}<span class="info"></span><span class="val">休館</span></div>`;
         const label = v === "off" ? "休み" : v ? `${v}〜${d.st === "event" ? d.end : view.end}` : "未入力";
         return `<div class="day tap" data-d="${d.d}">${date}
-          <span class="info">${d.st === "event" ? `🎪 ${esc(d.ev)}（${d.start}〜${d.end}）` : ""}</span>
+          <span class="info">${d.st === "event" ? `🎪 ${esc(d.ev)}（${d.start}〜${d.end}）` : ""}${e.note ? `<span class="memo">💬 ${esc(e.note)}</span>` : ""}</span>
           <span class="val ${v === "off" ? "off" : v ? "work" : ""}">${label}</span></div>`;
       }).join("")}</div>`;
     main.querySelectorAll(".day.tap").forEach(el => el.onclick = () => openSheet(m, el.dataset.d));
@@ -147,23 +161,29 @@ function render() {
 
 function openSheet(m, d) {
   const info = m.days.find(x => x.d === d);
-  const cur = currentWishes(m)[d];
+  const curE = currentWishes(m)[d] || {}, cur = curE.time;
   const opts = info.st === "event"
     ? [{ v: info.start, label: `🎪 ${info.start}〜${info.end}（${esc(info.ev)}）` }]
     : view.times.map(t => ({ v: t, label: `${t}〜${view.end}` }));
   const root = $("sheet-root");
   root.innerHTML = `<div class="sheet-bg"><div class="sheet">
     <h2>${fmtDay(d)}（${DAYS_JP[parseDate(d).getDay()]}）</h2>
+    <label class="memo-label">メモ（なくても大丈夫です）
+      <input type="text" id="sheet-note" maxlength="60" placeholder="例：15時で帰りたい／行事で11時から" value="${esc(curE.note || "")}"></label>
     ${opts.map(o => `<button data-v="${o.v}" class="${cur === o.v ? "sel" : ""}">${o.label}</button>`).join("")}
     <button data-v="off" class="offb ${cur === "off" ? "sel" : ""}">❌ 休み（出勤できない）</button>
     <button data-v="">（未入力に戻す）</button>
+    <button data-keep="1" class="memo-only">💬 メモだけ保存する（時刻はそのまま）</button>
     <button class="cancel" data-cancel="1">キャンセル</button></div></div>`;
   const close = () => { root.innerHTML = ""; };
   root.querySelector(".sheet-bg").onclick = e => { if (e.target.classList.contains("sheet-bg")) close(); };
   root.querySelectorAll(".sheet button").forEach(b => b.onclick = () => {
     if (b.dataset.cancel) return close();
     const next = { ...currentWishes(m) };
-    if (b.dataset.v) next[d] = b.dataset.v; else delete next[d];
+    const note = $("sheet-note").value.trim().slice(0, 60);
+    const time = b.dataset.keep ? cur : b.dataset.v;
+    const e = { ...(time ? { time } : {}), ...(note ? { note } : {}) };
+    if (e.time || e.note) next[d] = e; else delete next[d];
     drafts[m.ym] = next;
     close(); render();
   });
@@ -172,8 +192,13 @@ function openSheet(m, d) {
 function submit() {
   const ym = curYM, days = drafts[ym];
   if (!days) return;
+  const payload = {};
+  for (const [d, e] of Object.entries(days)) {
+    if (e.note) payload[d] = { ...(e.time ? { time: e.time } : {}), note: e.note };
+    else if (e.time) payload[d] = e.time;
+  }
   sending[ym] = true; render();
-  setDoc(doc(db, "submissions", `${token}_${ym}`), { token, ym, days, updatedAt: serverTimestamp() })
+  setDoc(doc(db, "submissions", `${token}_${ym}`), { token, ym, days: payload, updatedAt: serverTimestamp() })
     .then(() => {
       delete sending[ym];
       if (drafts[ym] === days) delete drafts[ym];
