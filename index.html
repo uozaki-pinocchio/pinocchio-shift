@@ -74,6 +74,7 @@
   .staff-name{font-weight:bold;font-size:.93rem;flex:1}
   .staff-info{font-size:.74rem;color:#4b5563}
   .staff-actions{display:flex;gap:6px;flex:none}
+  .time-chip{display:inline-flex;align-items:center;gap:4px;background:#f1f5f9;border:1px solid var(--border);border-radius:999px;padding:2px 4px 2px 12px;font-weight:bold}
   .wish-notice{background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 12px;font-size:.82rem;margin-bottom:10px}
   .wish-notice div{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:3px 0}
   .staff-badge{font-size:.7rem;padding:2px 7px;border-radius:12px;font-weight:bold}
@@ -365,6 +366,11 @@
 
 <section id="sec-settings" class="section">
   <div class="card">
+    <h2>🕘 来る時間の候補</h2>
+    <p class="text-sm mb-8">スタッフ登録の「開始可能時刻」に出てくる時刻です。足した時刻は、スタッフごとに ✏️ でチェックを入れると、その人の希望入力にも出ます。</p>
+    <div id="time-options"></div>
+  </div>
+  <div class="card">
     <h2>⚙️ データ管理</h2>
     <div class="flex-gap">
       <button class="btn btn-outline" onclick="exportData()">💾 エクスポート</button>
@@ -403,6 +409,12 @@ const REGULAR_TIMES  = ["8:00","9:00","9:30","10:00","12:00","13:00"];
 const PARTTIME_TIMES = ["9:30","10:00","12:00","14:15","14:45"];
 const DAYS_JP=["日","月","火","水","木","金","土"];
 const END_REGULAR="19:00",END_PARTTIME="17:30";
+// 来る時間の候補。「⚙️ 設定」で足し引きでき、何も設定していなければ上の初期値を使う
+const byTime=(a,b)=>toMin(a)-toMin(b);
+function timeOptions(type){
+  const t=state.timeOptions?.[type];
+  return(Array.isArray(t)&&t.length?[...t]:[...(type==="regular"?REGULAR_TIMES:PARTTIME_TIMES)]).sort(byTime);
+}
 const DEFAULT_RULES={
   A:{open:"8:00",coreStart:"10:00",close:"19:00",
      preCore:{minTotal:2,minReg:2},core:{minTotal:4,minReg:2},postPT:{minTotal:2,minReg:2}},
@@ -451,7 +463,7 @@ function getDayRules(ymKey,dateStr){
 }
 
 function init(){
-  buildSelectors();renderStartTimeChecks();renderStaffList();
+  buildSelectors();renderTimeOptions();renderStartTimeChecks();renderStaffList();
   renderOperatingSection();renderRuleSection();renderWishSection();renderShiftSection();
   updateHeaderPeriod();renderTimeline();log("アプリを起動しました");
 }
@@ -484,7 +496,7 @@ function onCloudData(newState){
     if(window.cloudMarkApplied)window.cloudMarkApplied(state);
     if(!appStarted){appStarted=true;init();return;}
     renderStaffList();renderOperatingSection();renderRuleSectionIfClean();renderWishSection();renderShiftSection();
-    renderTimeline();log("最新の内容を反映しました");
+    renderTimeline();renderTimeOptions();log("最新の内容を反映しました");
   }
   // スタッフ用ページを今のデータに合わせる（小窓を開いている間に後回しにした分もここで。違いがあるときだけ送る）
   if(window.cloudSyncPortals)window.cloudSyncPortals();
@@ -690,9 +702,39 @@ function collectRuleInputs(prefix){
 }
 
 function renderStartTimeChecks(){
-  const type=document.getElementById("s-type").value,times=type==="regular"?REGULAR_TIMES:PARTTIME_TIMES;
+  const type=document.getElementById("s-type").value,times=timeOptions(type);
   document.getElementById("start-time-checks").innerHTML=
     times.map(t=>`<label class="time-check"><input type="checkbox" value="${t}" checked> ${t}</label>`).join("");
+}
+function renderTimeOptions(){
+  const el=document.getElementById("time-options");if(!el)return;
+  el.innerHTML=[["regular","正規",END_REGULAR],["parttime","バイト",END_PARTTIME]].map(([type,label,end])=>`
+    <div class="mb-8"><b>${label}</b> <span class="text-sm">（帰りは ${end}）</span>
+      <div class="flex-gap mt-8">${timeOptions(type).map(t=>`<span class="time-chip">${t}
+        <button class="btn btn-icon btn-outline" title="候補から外す" onclick="removeTimeOption('${type}','${t}')">×</button></span>`).join("")}</div>
+      <div class="flex-gap mt-8"><input type="time" id="new-time-${type}" step="900" style="width:120px">
+        <button class="btn btn-sm btn-primary" onclick="addTimeOption('${type}')">＋ 追加</button></div>
+    </div>`).join("");
+}
+function normTime(v){const m=/^(\d{1,2}):(\d{2})$/.exec(v||"");if(!m)return null;const h=+m[1],mi=+m[2];return h<24&&mi<60?`${h}:${p2(mi)}`:null;}
+function setTimeOptions(type,list){
+  if(!state.timeOptions)state.timeOptions={};
+  state.timeOptions[type]=[...new Set(list)].sort(byTime);
+  saveState();renderTimeOptions();renderStartTimeChecks();
+}
+function addTimeOption(type){
+  const t=normTime(document.getElementById(`new-time-${type}`).value);
+  if(!t){alert("時刻を入れてください。");return;}
+  const end=type==="regular"?END_REGULAR:END_PARTTIME;
+  if(toMin(t)>=toMin(end)){alert(`帰りの時刻（${end}）より前の時刻にしてください。`);return;}
+  const cur=timeOptions(type);if(cur.includes(t)){alert(`${t} はもう候補にあります。`);return;}
+  setTimeOptions(type,[...cur,t]);log(`来る時間の候補に ${t} を追加しました`);
+}
+function removeTimeOption(type,t){
+  const cur=timeOptions(type);
+  if(cur.length<=1){alert("候補は1つ以上必要です。");return;}
+  if(!confirm(`${t} を候補から外しますか？\n（すでにこの時刻にチェックが入っているスタッフは、そのまま残ります）`))return;
+  setTimeOptions(type,cur.filter(x=>x!==t));log(`来る時間の候補から ${t} を外しました`);
 }
 function onTypeChange(){
   const isReg=document.getElementById("s-type").value==="regular";
@@ -749,7 +791,7 @@ function deleteStaff(id){
   state.staffList=state.staffList.filter(x=>x.id!==id);saveState();renderStaffList();
 }
 function editStaff(id){
-  const s=state.staffList.find(x=>x.id===id),times=s.type==="regular"?REGULAR_TIMES:PARTTIME_TIMES;
+  const s=state.staffList.find(x=>x.id===id),times=[...new Set([...timeOptions(s.type),...s.times])].sort(byTime);
   showModal("スタッフ編集："+s.name,`
     <div class="form-group mb-8"><label>氏名</label><input id="edit-name" type="text" value="${escHtml(s.name)}" style="width:200px"></div>
     <div class="form-row">
@@ -1030,7 +1072,8 @@ function openShiftEditModal(staffId,dateStr,ymKey){
   if(isEvt){
     times=[op.startTime||"09:00"];
   } else {
-    times=isReg?REGULAR_TIMES:PARTTIME_TIMES;
+    times=timeOptions(isReg?"regular":"parttime");
+    if(curTime&&!times.includes(curTime))times=[...times,curTime].sort(byTime);
   }
 
   const timeBtns=times.map(t=>`
@@ -1361,7 +1404,7 @@ function applyWishSubmissions(subs){
   });
   return changed;
 }
-function refreshAll(){renderStaffList();renderOperatingSection();renderRuleSectionIfClean();renderWishSection();renderShiftSection();renderTimeline();}
+function refreshAll(){renderTimeOptions();renderStaffList();renderOperatingSection();renderRuleSectionIfClean();renderWishSection();renderShiftSection();renderTimeline();}
 
 function showModal(title,body,buttons){
   document.getElementById("modal-title").textContent=title;document.getElementById("modal-body").innerHTML=body;

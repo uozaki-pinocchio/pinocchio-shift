@@ -7,7 +7,7 @@
 //   window.cloudLogout()             … ログアウト
 //
 // 保存の形（Firestore）：
-//   appData/staff        … { staffList }
+//   appData/staff        … { staffList, timeOptions }（timeOptions は「来る時間の候補」。設定したときだけある）
 //   months/{年-月}       … { wishes, shifts, operating, periodRules, published, wishSync } のうち、その月の分
 //   portals/{合言葉}     … スタッフ用ページに見せる本人の分だけの情報（管理者が書き出す）
 //   submissions/{合言葉_年-月} … スタッフが専用リンクから出した希望（管理者の画面が取り込む）
@@ -102,6 +102,7 @@ window.cloudMarkApplied = st => { baseState = JSON.parse(JSON.stringify(st)); };
 function publish() {
   if (staffData === null || monthsData === null) return;
   const state = { staffList: staffData.staffList || [] };
+  if (staffData.timeOptions) state.timeOptions = staffData.timeOptions;
   for (const f of MONTH_FIELDS) state[f] = {};
   for (const [ym, m] of Object.entries(monthsData)) {
     for (const f of MONTH_FIELDS) if (m[f] !== undefined) state[f][ym] = m[f];
@@ -185,7 +186,9 @@ window.addEventListener("offline", () => setSync("📴 オフライン（つな�
 function fieldsOf(st) {
   const out = new Map();
   if (!st) return out;
-  out.set("staff", { staffList: st.staffList || [] });
+  const staff = { staffList: st.staffList || [] };
+  if (st.timeOptions) staff.timeOptions = st.timeOptions;
+  out.set("staff", staff);
   for (const f of MONTH_FIELDS) {
     for (const [ym, v] of Object.entries(st[f] || {})) {
       if (v === undefined) continue;
@@ -196,7 +199,7 @@ function fieldsOf(st) {
   }
   return out;
 }
-const fieldsOfKey = key => key === "staff" ? ["staffList"] : MONTH_FIELDS;
+const fieldsOfKey = key => key === "staff" ? ["staffList", "timeOptions"] : MONTH_FIELDS;
 const refOf = key => key === "staff" ? staffRef : doc(monthsCol, key.slice(6));
 const remoteOf = key => (key === "staff" ? staffData : monthsData[key.slice(6)]) || {};
 const jsonOf = (obj, f) => f in obj ? stable(obj[f]) : undefined;
