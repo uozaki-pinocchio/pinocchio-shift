@@ -951,7 +951,7 @@ function generateShift(){
     });
   }
   function getWished(list,d){return sortByBalance(list.filter(s=>wishes[s.id]?.[d]?.time&&wishes[s.id][d].time!=="off"&&canWork(s,d)),d);}
-  function getNoWish(list,d){return sortByBalance(list.filter(s=>!wishes[s.id]?.[d]?.time&&canWork(s,d)),d);}
+  // 自動生成は「希望の時刻を出した日」にだけ入れる。希望を出していない日（未入力）は休みとして扱う
   const workDates=allDates.filter(d=>isOperating(ymKey,d));
   workDates.forEach(dateStr=>{
     const op=getOpStatus(ymKey,dateStr),isEvt=op.status==="event",satDay=isSat(dateStr);
@@ -959,19 +959,16 @@ function generateShift(){
       const evStart=op.startTime||"09:00",needReg=op.regCount||0,needPt=op.ptCount||0;
       let cr=0,cp=0;
       for(const s of getWished(regulars,dateStr)){if(cr>=needReg)break;assign(s,dateStr,wishes[s.id][dateStr].time);cr++;}
-      for(const s of getNoWish(regulars,dateStr)){if(cr>=needReg)break;assign(s,dateStr,evStart);cr++;}
       for(const s of getWished(parttimes,dateStr)){if(cp>=needPt)break;assign(s,dateStr,wishes[s.id][dateStr].time);cp++;}
-      for(const s of getNoWish(parttimes,dateStr)){if(cp>=needPt)break;assign(s,dateStr,evStart);cp++;}
     }else{
       const rules=getDayRules(ymKey,dateStr),coreTotal=satDay?Math.min(rules.core.minTotal,3):rules.core.minTotal,needReg=rules.core.minReg;
       let cr=0,ct=0;
       for(const s of getWished(regulars,dateStr)){if(cr>=needReg)break;assign(s,dateStr,wishes[s.id][dateStr].time);cr++;ct++;}
-      for(const s of getNoWish(regulars,dateStr)){if(cr>=needReg)break;assign(s,dateStr,s.times[0]||"9:00");cr++;ct++;}
       let needMore=coreTotal-ct;
       if(needMore>0){
         for(const s of getWished(parttimes,dateStr)){if(needMore<=0)break;assign(s,dateStr,wishes[s.id][dateStr].time);needMore--;ct++;}
-        for(const s of getNoWish(parttimes,dateStr)){if(needMore<=0)break;assign(s,dateStr,s.times[0]||"9:30");needMore--;ct++;}
-        for(const s of getNoWish(regulars,dateStr)){if(needMore<=0)break;if(newShift[s.id][dateStr].isOff){assign(s,dateStr,s.times[0]||"9:00");needMore--;}}
+        // バイトで足りなければ、希望を出していてまだ入っていない正規で埋める
+        for(const s of getWished(regulars,dateStr)){if(needMore<=0)break;if(newShift[s.id][dateStr].isOff){assign(s,dateStr,wishes[s.id][dateStr].time);needMore--;ct++;}}
       }
     }
   });
