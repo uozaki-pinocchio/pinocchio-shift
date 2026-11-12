@@ -136,7 +136,7 @@ function render() {
     const w = currentWishes(m);
     const submitted = mine[m.ym];
     main.innerHTML = chips + `<p class="range">${esc(m.range)}</p>
-      <div class="note">日付をタップして、出勤できる時刻か「休み」を選んでください。<br>選び終わったら、下の <b>「提出する」</b> を押してください。あとから何度でも変更できます。</div>
+      <div class="note">出勤できる日に、日付をタップして時刻を選んでください。<b>何も選ばない日は「休み」として扱います。</b><br>選び終わったら、下の <b>「提出する」</b> を押してください。あとから何度でも変更できます。</div>
       ${m.shift ? `<div class="note warn">この月のシフトはもう公開されています。希望を変えたときは、念のため管理者にも一声かけてください。</div>` : ""}
       <div class="days">${m.days.map(d => {
         const e = w[d.d] || {}, v = e.time, wd = DAYS_JP[parseDate(d.d).getDay()];
